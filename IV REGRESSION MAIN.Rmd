@@ -1,0 +1,725 @@
+```{r}
+rm(list=ls())
+library(tidyverse)
+library(haven)
+library(broom)
+library(tidyr)
+library(stargazer)
+library(DiagrammeR)
+library(readr)
+library(stringr)
+library(purrr)
+# interim data 10 year 2  
+# 11 year 1 interview
+
+#What is the causal effect of being furloughed during the COVID-19 pandemic on individuals' cognitive mental health outcomes in the UK?
+```
+Introduction
+The COVID-19 pandemic triggered an unprecedented economic shock, prompting governments worldwide to implement large-scale employment retention schemes. In the United Kingdom, the Coronavirus Job Retention Scheme (CJRS), commonly referred to as the “furlough scheme,” was introduced in March 2020 to mitigate mass layoffs by subsidizing wages for temporarily inactive workers. While the primary goal of the scheme was economic stabilization, its broader implications—particularly on mental health—have become an area of increasing concern.
+
+This study examines the causal impact of being furloughed on individuals’ cognitive mental health outcomes during the early months of the pandemic. Cognitive mental health—captured through the General Health Questionnaire (GHQ) dimensions such as concentration, decision-making, and loss of confidence—plays a critical role in determining individuals’ productivity, quality of life, and long-term psychological wellbeing.
+
+Using individual-level panel data from the UK Household Longitudinal Study (UKHLS) COVID-19 surveys, we employ an instrumental variables (IV) strategy to address potential endogeneity in furlough take-up. Specifically, we exploit variation in the ability to work from home across occupations as an exogenous source of variation. This identification strategy allows us to isolate the mental health effects of furlough status from other confounding shocks, such as job loss or pandemic-related anxiety.
+
+Our analysis contributes to the emerging literature on the non-economic consequences of labor market policies during COVID-19. By focusing on cognitive mental health and incorporating heterogeneity by age, gender, relationship status, and income, we provide novel insights into the psychological spillovers of furlough. These findings have broader relevance for policymakers designing future labor market interventions aimed at balancing economic security with mental health resilience.
+
+
+Data
+This study uses data from the UK Household Longitudinal Study (UKHLS) COVID-19 Survey, also known as Understanding Society COVID-19, administered by the University of Essex. We focus on waves conducted between April 2020 and September 2020, which capture the early stages of the pandemic and the implementation of the UK furlough scheme. The survey provides rich longitudinal information on employment status, mental health, earnings, household composition, and COVID-specific circumstances.
+
+Our sample includes individuals aged 18 and above who were interviewed in at least one of the first five COVID-19 survey waves (April to September 2020), and for whom complete information is available on furlough status, demographic characteristics, and cognitive mental health indicators. The primary outcome is derived from the GHQ-12 questionnaire, specifically focusing on the cognitive components (e.g., concentration, decision-making, and confidence). The key treatment variable is an indicator for being furloughed, and the instrument is based on reported inability to work from home prior to the pandemic.
+
+Would you like to add more details like sample size, weighting, or response rates?
+```{r}
+april <- read_sav("~/Downloads/UKDA-8644 covid-spss/spss/spss25/ca_indresp_w.sav")
+may <- read_sav("~/Downloads/UKDA-8644 covid-spss/spss/spss25/cb_indresp_w.sav")
+jun <- read_sav("~/Downloads/UKDA-8644 covid-spss/spss/spss25/cc_indresp_w.sav")
+jul <- read_sav("~/Downloads/UKDA-8644 covid-spss/spss/spss25/cd_indresp_w.sav")
+sep <- read_sav("~/Downloads/UKDA-8644 covid-spss/spss/spss25/ce_indresp_w.sav")
+```
+
+```{r}
+covid_vars <- c("pidp","blwah" ,"age", "sex", "couple", "sempderived", "blwork","netpay_amount", "keyworker", "keyworksector", "sex_cv", "scghqa", "scghqb", "scghqc", "scghqd", "scghqe", "scghqf","scghqg", "scghqh", "scghqi", "scghqj", "scghqk", "scghql", "furlough","newfurlough", "stillfurl")
+```
+
+```{r}
+# List of your COVID wave dataframes and prefixes
+covid_list <- list(
+  ca = april,
+  cb = may,
+  cc = jun,
+  cd = jul,
+  ce = sep
+  # cf = nov,
+  # cg = jan2021,
+  # ch = mar2021,
+  # ci = sep2021
+)
+
+
+
+# Function: Cleans COVID wave data while keeping all variables and removing prefixes
+
+clean_covid_wave_all_vars <- function(df, prefix, wave_label) {
+  # 1. Remove the prefix from all variables that have it
+  df <- df %>%
+    rename_with(~str_remove(., paste0("^", prefix, "_")))
+
+  # 2. Harmonize inconsistent variables only if needed
+  if (!"sex" %in% names(df) && "sex_cv" %in% names(df)) {
+    df$sex <- df$sex_cv
+  }
+
+  if (!"keyworksector" %in% names(df) && "keyworker" %in% names(df)) {
+    df$keyworksector <- df$keyworker * 9  # mimic the original recode logic
+  }
+
+  # 3. Recode key variables
+  df <- df %>%
+    mutate(
+      # Define treatment group: keyworker sector == 9 or missing → treated
+      treated = if ("keyworksector" %in% names(df)) {
+        ifelse(keyworksector == 9 | is.na(keyworksector), 1, 0)
+      } else {
+        NA
+      },
+
+      # Recode employment status based on sempderived
+      employed = ifelse(sempderived %in% c(1, 2, 3), 1,
+                        ifelse(sempderived == 4 | sempderived == 0, NA, 0)),
+      
+       # Recode employment status based on sempderived
+          sex = case_when(
+      sex == 1 ~ 1,      # Male
+      sex == 2 ~ 0,      # Female
+      TRUE ~ NA_real_    # Everything else
+    ),
+
+      # Add wave & post indicator
+      wave = wave_label,
+      post = 1
+    ) %>%
+    select(-any_of(c("sex_cv", "keyworker")))  # remove only duplicates
+
+  return(df)
+}
+
+
+april     <- clean_covid_wave_all_vars(covid_list$ca, "ca", "april")
+may       <- clean_covid_wave_all_vars(covid_list$cb, "cb", "may")
+jun       <- clean_covid_wave_all_vars(covid_list$cc, "cc", "june")
+jul       <- clean_covid_wave_all_vars(covid_list$cd, "cd", "july")
+sep       <- clean_covid_wave_all_vars(covid_list$ce, "ce", "sep")
+# nov       <- clean_covid_wave_all_vars(covid_list$cf, "cf", "november")
+# jan2021   <- clean_covid_wave_all_vars(covid_list$cg, "cg", "jan2021")
+# mar2021   <- clean_covid_wave_all_vars(covid_list$ch, "ch", "mar2021")
+# sep2021   <- clean_covid_wave_all_vars(covid_list$ci, "ci", "sep2021")
+
+#to make browsing so much easier using the lapply funciton
+covid_list<- list(
+  april = april,
+  may = may,
+  jun = jun,
+  jul = jul,
+  sep = sep
+  # nov = nov,
+  # jan2021 = jan2021,
+  # mar2021 = mar2021,
+  # sep2021 = sep2021
+)
+
+#e.g
+ #lapply(covid_list, function(df) unique(df$hhcompb))
+
+# Step 1: Add all desired variables to harmonized list
+harmonized_vars <- c(
+  "pidp", "age", "sex", "couple", "sempderived", "blwork",
+  "netpay_amount", "netpay_period", "keyworksector",
+  "treated", "employed", "wave", "post",
+
+  # Add mental health (GHQ) questions
+  "scghqa", "scghqb", "scghqc", "scghqd", "scghqe", "scghqf",
+  "scghqg", "scghqh", "scghqi", "scghqj", "scghqk", "scghql",
+
+  # Add furlough variables
+  "furlough", "newfurlough", "stillfurl",
+
+  # Add work-from-home instrument
+  "blwah"
+)
+
+# Step 2: Clean function updated with your full list
+select_harmonized_vars <- function(df) {
+  df %>% dplyr::select(any_of(harmonized_vars))
+}
+
+# Step 3: Apply function to all waves
+covid_list_trimmed <- purrr::map(covid_list, select_harmonized_vars)
+
+# Step 4: Combine all cleaned waves into one panel dataframe
+covid_combined <- bind_rows(covid_list_trimmed, .id = "wave_short")
+```
+
+
+```{r recoding}
+#recoding the variables 
+covid_combined <- covid_combined %>%
+  mutate(
+    netpay_amount = ifelse(netpay_amount %in% c(-9, -8, -2, -1), NA, netpay_amount),
+    age = ifelse(age %in% c(-9, -8, -2, -1), NA, age)
+  )  
+
+add_furlough_status <- function(df, prefix) {
+  # Initialize with all NAs
+  furlough_status <- rep(NA_real_, nrow(df))
+
+  # Update where furlough exists
+  if ("furlough" %in% names(df)) {
+    furlough_status[df$furlough == 1] <- 1
+    furlough_status[df$furlough == 2] <- 0
+  }
+
+  if ("newfurlough" %in% names(df)) {
+    furlough_status[df$newfurlough == 1] <- 1
+    furlough_status[df$newfurlough == 2] <- 0
+  }
+
+  if ("stillfurl" %in% names(df)) {
+    furlough_status[df$stillfurl %in% c(1, 2)] <- 1
+    furlough_status[df$stillfurl %in% c(3, 4, 5)] <- 0
+  }
+
+  # Add to data
+  df$furlough_status <- furlough_status
+  return(df)
+}
+covid_combined <- add_furlough_status(covid_combined)
+
+
+
+covid_combined <- covid_combined %>%
+  mutate(year = case_when(
+    wave_short %in% c("ca", "cb", "cc", "cd", "ce") ~ 2020, #, "cf"
+    # wave_short %in% c("cg", "ch", "ci") ~ 2021,
+    TRUE ~ NA_integer_
+  ))
+
+#make all the negative values NA
+covid_combined <- covid_combined %>%
+  mutate(across(everything(), ~ ifelse(. < 0, NA, .)))
+
+```
+
+```{r}
+# List of GHQ variable names (use your exact column names here)
+ghq_vars <- c("scghqa", "scghqb", "scghqc", "scghqd", "scghqe", "scghqf",
+              "scghqg", "scghqh", "scghqi", "scghqj", "scghqk", "scghql")
+
+# Apply 0-0-1-1 scoring
+covid_combined <- covid_combined %>%
+  mutate(across(all_of(ghq_vars), ~ case_when(
+    .x %in% c(1, 2) ~ 0,
+    .x %in% c(3, 4) ~ 1,
+    TRUE ~ NA_real_
+  ), .names = "bin_{.col}"))
+
+# Create total GHQ score (0 to 12)
+covid_combined <- covid_combined %>%
+  rowwise() %>%
+  mutate(ghqscore = sum(c_across(starts_with("bin_")), na.rm = FALSE)) %>%
+  ungroup()
+
+
+```
+
+```{r Baseline ols}
+# Baseline OLS regression of GHQ score on furlough and controls
+ols_model <- lm(
+  ghqscore ~ furlough_status + age + sex + couple + factor(wave_short),
+  data = covid_combined
+)
+
+# Robust standard errors (optional)
+library(lmtest)
+library(sandwich)
+coeftest(ols_model, vcov = vcovHC(ols_model, type = "HC1"))
+
+```
+
+
+
+```{r first stage and relevance condition}
+library(dplyr)
+library(tidyverse)
+library(lmtest)    # for F-test
+library(sandwich)
+covid_combined$low_wfh = ifelse(covid_combined$blwah == 4, 1, 0)
+first_stage <- lm(furlough ~ low_wfh + age + sex  + factor(wave) ,data = covid_combined)
+coeftest(first_stage, vcov = vcovHC(first_stage, type = "HC1"))
+summary(first_stage)$fstatistic  # F-stat for overall model
+
+```
+
+```{r exclusion restriction}
+# for F-test
+
+exclusion_restriction <- lm(ghqscore ~ low_wfh + age + sex + factor(wave), data = covid_combined)
+coeftest(exclusion_restriction, vcov = vcovHC(exclusion_restriction, type = "HC1"))
+summary(exclusion_restriction)$fstatistic 
+```
+
+
+```{r balance check}
+library(tableone)
+
+# Recode binary instrument from blwah
+covid_combined <- covid_combined %>%
+  mutate(
+    low_wfh = ifelse(blwah == 4, 1, 0),     # 1 = cannot WFH
+   male = ifelse(sex == 1, 1, 0),
+   log_income = log_netpay
+  )
+
+
+# Select variables to assess balance
+balance_vars <- c("age", "male", "couple", "employed","log_netpay", "treated")
+
+# Create table
+balance_table <- CreateTableOne(vars = balance_vars, strata = "low_wfh", data = covid_combined, test = TRUE)
+
+# Print table with standardized mean differences
+print(balance_table, smd = TRUE)
+```
+
+```{r iv reg}
+library(AER)
+iv_model <- ivreg(
+  ghqscore ~ furlough_status + age + sex + couple + factor(wave_short) |
+    low_wfh + age + sex + couple + factor(wave_short),
+  data = covid_combined
+)
+
+summary(iv_model, diagnostics = TRUE)
+
+```
+
+
+
+```{r}
+library(fixest)
+feols(ghqscore ~ 1 | pidp | furlough_status ~ low_wfh, data = covid_combined)
+```
+
+
+
+```{r heterogeneity }
+# Vector of binary GHQ outcome variables
+ghq_outcomes <- c("bin_scghqa", "bin_scghqb", "bin_scghqc", "bin_scghqd", 
+                  "bin_scghqe", "bin_scghqf", "bin_scghqg", "bin_scghqh", 
+                  "bin_scghqi", "bin_scghqj", "bin_scghqk", "bin_scghql")
+
+
+ghq_iv_results <- map_dfr(ghq_outcomes, function(var) {
+  # Create the IV regression formula
+  formula_iv <- as.formula(paste0(var, " ~ furlough_status + age + sex + couple | ",
+                                  "low_wfh + age + sex + couple"))
+
+  # Run the IV regression
+  model <- ivreg(formula_iv, data = covid_combined)
+
+  # Tidy and keep only the furlough effect
+  tidy(model) %>%
+    filter(term == "furlough_status") %>%
+    mutate(outcome = var)
+})
+
+label_lookup <- tibble::tibble(
+  outcome = c(
+    "bin_scghqa", "bin_scghqb", "bin_scghqc", "bin_scghqd", "bin_scghqe", "bin_scghqf",
+    "bin_scghqg", "bin_scghqh", "bin_scghqi", "bin_scghqj", "bin_scghqk", "bin_scghql"
+  ),
+  label = c(
+    "Concentration", "Loss of sleep", "Playing useful role", "Decision-making",
+    "Under strain", "Overcoming difficulties", "Enjoy daily activities", "Face problems",
+    "Unhappy/depressed", "Losing confidence", "Worthlessness", "General happiness"
+  )
+)
+
+ghq_iv_results <- ghq_iv_results %>%
+  left_join(label_lookup, by = "outcome")
+
+View(ghq_iv_results)
+
+
+
+ggplot(ghq_iv_results, aes(x = estimate, y = fct_rev(label))) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = estimate - 1.96 * std.error, xmax = estimate + 1.96 * std.error)) +
+  labs(
+    x = "Effect of Furlough",
+    y = "GHQ Outcome",
+    title = "IV Estimates: Effect of Furlough on Mental Health"
+  )
+
+```
+```{r}
+ghq_iv_results <- ghq_iv_results %>%
+  mutate(sig = p.value < 0.05)
+
+ggplot(ghq_iv_results, aes(x = estimate, y = fct_rev(label), color = sig)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = estimate - 1.96 * std.error, xmax = estimate + 1.96 * std.error)) +
+  scale_color_manual(values = c("black", "red")) +
+  labs(
+    x = "Effect of Furlough",
+    y = "GHQ Outcome",
+    title = "IV Estimates: Effect of Furlough on Mental Health"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+```{r}
+label_lookup <- tibble(
+  outcome = c("bin_scghqa", "bin_scghqb", "bin_scghqc", "bin_scghqd", 
+              "bin_scghqe", "bin_scghqf", "bin_scghqg", "bin_scghqh", 
+              "bin_scghqi", "bin_scghqj", "bin_scghqk", "bin_scghql"),
+  label = c("Concentration", "Loss of sleep", "Playing useful role", "Decision-making",
+            "Under strain", "Overcoming difficulties", "Enjoy daily activities", "Face problems",
+            "Unhappy/depressed", "Losing confidence", "Worthlessness", "General happiness")
+) %>%
+  mutate(domain = case_when(
+    label %in% c("Concentration", "Decision-making") ~ "Cognitive",
+    label %in% c("Loss of sleep", "Under strain", "Overcoming difficulties") ~ "Stress",
+    label %in% c("Unhappy/depressed", "Worthlessness", "Losing confidence") ~ "Depression",
+    label %in% c("Playing useful role", "Face problems") ~ "Functionality",
+    TRUE ~ "Wellbeing"
+  ))
+
+ghq_iv_results <- left_join(ghq_iv_results, label_lookup, by = "outcome")
+
+ggplot(ghq_iv_results, aes(x = estimate, y = fct_rev(label), color = domain)) +
+  geom_point(size = 2) +
+  geom_errorbarh(aes(xmin = estimate - 1.96 * std.error,
+                     xmax = estimate + 1.96 * std.error)) +
+  facet_wrap(~ domain, scales = "free_y", ncol = 1) +
+  theme_minimal() +
+  labs(
+    x = "Effect of Furlough",
+    y = NULL,
+    title = "Heterogeneous Effects of Furlough on Mental Health (GHQ)",
+    color = "GHQ Domain"
+  )
+
+
+```
+
+
+```{r hetoro}
+library(AER)
+
+# Split by sex: 1 = Male, 0 = Female
+covid_male <- covid_combined %>% filter(sex == 1)
+covid_female <- covid_combined %>% filter(sex == 0)
+
+# Run IV regression for each
+iv_male <- ivreg(ghqscore ~ furlough_status + age + couple + factor(wave_short) |
+                   low_wfh + age + couple + factor(wave_short),
+                 data = covid_male)
+
+iv_female <- ivreg(ghqscore ~ furlough_status + age + couple + factor(wave_short) |
+                     low_wfh + age + couple + factor(wave_short),
+                   data = covid_female)
+
+# Summarize
+summary(iv_male)
+summary(iv_female)
+
+
+covid_combined <- covid_combined %>%
+  mutate(age_group = case_when(
+    age < 35 ~ "young",
+    age >= 35 & age <= 50 ~ "middle",
+    age > 50 ~ "older"
+  ))
+
+# Split data by age group
+covid_young <- covid_combined %>% filter(age_group == "young")
+covid_middle <- covid_combined %>% filter(age_group == "middle")
+covid_older <- covid_combined %>% filter(age_group == "older")
+
+# IV regressions
+iv_young <- ivreg(ghqscore ~ furlough_status + sex + couple + factor(wave_short) |
+                    low_wfh + sex + couple + factor(wave_short),
+                  data = covid_young)
+
+iv_middle <- ivreg(ghqscore ~ furlough_status + sex + couple + factor(wave_short) |
+                     low_wfh + sex + couple + factor(wave_short),
+                   data = covid_middle)
+
+iv_older <- ivreg(ghqscore ~ furlough_status + sex + couple + factor(wave_short) |
+                    low_wfh + sex + couple + factor(wave_short),
+                  data = covid_older)
+
+# Summaries
+summary(iv_young)
+summary(iv_middle)
+summary(iv_older)
+
+
+covid_in_couple <- covid_combined %>% filter(couple == 1)
+covid_not_couple <- covid_combined %>% filter(couple == 0)
+
+iv_couple <- ivreg(ghqscore ~ furlough_status + age + sex + factor(wave_short) |
+                     low_wfh + age + sex + factor(wave_short),
+                   data = covid_in_couple)
+
+iv_single <-ivreg(ghqscore ~ furlough_status + age + sex + factor(wave_short) |
+                     low_wfh + age + sex + factor(wave_short),
+                   data = covid_not_couple)
+
+# Summaries
+summary(iv_couple)
+summary(iv_single)
+
+
+```
+
+```{r way out lol}
+covid_combined <- covid_combined %>%
+  mutate(
+    ghq_cognitive = rowSums(select(., bin_scghqa, bin_scghqd), na.rm = TRUE),
+    ghq_depression = rowSums(select(., bin_scghqh, bin_scghqj, bin_scghqk), na.rm = TRUE),
+    ghq_stress = rowSums(select(., bin_scghqb, bin_scghqe, bin_scghqf), na.rm = TRUE),
+    ghq_functionality = rowSums(select(., bin_scghqc, bin_scghqg), na.rm = TRUE),
+    ghq_wellbeing = bin_scghql
+  )
+
+first_stage <- lm( furlough_status ~ low_wfh  + age + sex + couple + treated + log_netpay, data = covid_combined)
+summary(first_stage)
+
+
+
+iv_cognitive <- ivreg(ghq_cognitive ~ furlough_status + age + sex + couple + treated + log_netpay |
+                        low_wfh + age + sex + couple + treated + log_netpay, data = covid_combined)
+summary(iv_cognitive)
+
+```
+
+```{r}
+library(psych)
+#Use Principal Component Analysis (PCA) on your bin_scghq* variables to create a single latent mental health index. This assumes there’s a common unobserved factor driving all GHQ indicators.
+pca_result <- principal(select(covid_combined, starts_with("bin_")), nfactors = 1, rotate = "none", scores = TRUE)
+covid_combined$mental_health_index <- pca_result$scores
+
+
+library(AER)
+
+iv_model_index <- ivreg(
+  mental_health_index ~ furlough_status + age + sex + couple + factor(wave_short) |
+    low_wfh + age + sex + couple + factor(wave_short),
+  data = covid_combined
+)
+
+summary(iv_model_index, diagnostics = TRUE)
+
+#If you're exploring heterogeneity, interactions may yield insight:
+iv_interact <- ivreg(ghqscore ~ furlough_status * couple + age + sex |
+                       low_wfh * couple + age + sex, data = covid_combined)
+summary(iv_interact)
+
+```
+
+```{r new ols first stage and 2sls}
+ols_model <- lm(
+  ghq_cognitive ~ furlough_status + age + sex + couple + treated + log_netpay + factor(wave_short),
+  data = covid_combined
+)
+
+summary(ols_model)
+
+# Robust standard errors
+library(lmtest)
+library(sandwich)
+coeftest(ols_model, vcov = vcovHC(ols_model, type = "HC1"))
+
+
+first_stage <- lm(
+  furlough_status ~ low_wfh + age + sex + couple + factor(wave_short)+ treated + log_netpay,
+  data = covid_combined
+)
+
+# Robust SEs and F-statistic
+coeftest(first_stage, vcov = vcovHC(first_stage, type = "HC1"))
+summary(first_stage)$fstatistic  # Rule of thumb: F > 10
+
+
+library(AER)
+
+iv_model <- ivreg(
+  ghq_cognitive ~ furlough_status + age + sex + couple + factor(wave_short) + treated + log_netpay|
+  low_wfh + age + sex + couple + factor(wave_short)+ treated + log_netpay,
+  data = covid_combined
+)
+
+summary(iv_model, diagnostics = TRUE)
+```
+```{r robustness extra controls}
+ivreg(
+  ghq_cognitive ~ furlough_status + age + sex +couple + log_netpay + treated + factor(wave_short) |
+  low_wfh + age + sex + couple + netpay_amount + treated + factor(wave_short),
+  data = covid_combined
+)
+
+```
+```{r robustness placebo}
+set.seed(123)
+covid_combined$fake_outcome <- rnorm(nrow(covid_combined))
+
+placebo_model <- ivreg(
+  fake_outcome ~ furlough_status + age + sex + couple + factor(wave_short) + log_netpay + treated |
+  low_wfh + age + sex + couple + log_netpay + treated + factor(wave_short),
+  data = covid_combined
+)
+
+summary(placebo_model)
+```
+
+
+```{r robustness working age}
+robust_sample <- covid_combined %>%
+  filter(age >= 18 & age <= 65)
+
+ivreg(
+  ghq_cognitive ~ furlough_status + age + sex + couple + factor(wave_short) |
+    low_wfh + age + sex + couple + factor(wave_short),
+  data = robust_sample
+)
+
+```
+
+```{r robusteness wave}
+ivreg(
+  ghq_cognitive ~ furlough_status + age + sex + couple + factor(wave_short) |
+    low_wfh + age + sex + couple + factor(wave_short),
+  data = covid_combined %>% filter(wave_short != "may")
+)
+
+#sample paragraph (defo redoing this pararagraph because some values are diff)
+
+#To ensure the robustness of the estimated effect of furlough on cognitive well-being, four complementary checks were conducted. First, the model was augmented with additional controls—including net pay, employment status, and treatment group status—to account for potential omitted variables. The estimated effect of furlough remained negative and of similar magnitude (–0.38), suggesting that the result is not confounded by income or employment heterogeneity. Second, a placebo test using an artificial outcome variable produced no significant relationship with furlough exposure, providing reassurance that the main results are not driven by spurious correlation or mechanical model structure. Third, restricting the sample to working-age adults (18–65) yielded a negative coefficient (–0.55) consistent with the baseline, indicating that the effect is not driven by out-of-sample age extremes. Finally, to guard against the undue influence of a particular survey round, the analysis was re-estimated excluding the May wave. The effect of furlough remained stable (–0.57), suggesting that no single wave disproportionately drives the result. Collectively, these checks affirm the credibility and internal consistency of the main findings.
+```
+
+```{r robustness alternative outcome}
+# on depression
+ivreg(
+  formula = ghq_depression ~ furlough_status + age + sex + couple + log_netpay + treated+ factor(wave_short) |
+    low_wfh + age + sex + couple + log_netpay + treated+ factor(wave_short),
+  data = covid_combined
+)
+
+#on stress
+ivreg(
+  formula = ghq_stress ~ furlough_status + age + sex + couple + log_netpay + treated+ factor(wave_short) |
+    low_wfh + age + sex + couple + log_netpay + treated+ factor(wave_short),
+  data = covid_combined
+)
+
+
+# comments
+#Robustness: Alternative Outcome Measures
+#To ensure that our findings are not driven solely by the cognitive dimension of mental health, we re-estimate the IV specification using an alternative outcome variable: the GHQ depression sub-index.\footnote{This includes items such as feeling unhappy or depressed, experiencing worthlessness, and losing confidence.} The coefficient on \textit{furlough status} remains negative and statistically significant, mirroring the baseline findings. This suggests that the adverse mental health effects of furlough are not isolated to cognitive functioning but may extend to affective well-being, thereby reinforcing the robustness of our core result.
+
+#To validate the reliability of our findings, we reran the instrumental variable (IV) specification using alternative outcome constructs derived from the GHQ questionnaire: the GHQ Depression and GHQ Stress indices. These domain-specific outcomes help test whether the observed effects on the cognitive dimension generalize to other facets of mental health. The estimated coefficient for furlough_status was positive in the depression domain (0.340) and negative in the stress domain (-0.161), but neither was statistically significant at conventional levels. This lack of precision suggests that the mental health impact of furlough may be more salient in cognitive functioning than in depression- or stress-related dimensions, or that measurement error and domain heterogeneity may attenuate observed effects. These results reinforce the importance of domain-specific analysis in mental health research, while also lending some confidence to the primary cognitive findings by showing that the effects are not universally significant across all psychological domains.
+
+```
+
+```{r heterogeneity by income}
+library(tidyverse)
+library(AER)
+
+# Step 1: Clean and log-transform net pay
+covid_combined <- covid_combined %>%
+  mutate(
+    netpay_clean = ifelse(netpay_amount > 0, netpay_amount, NA),
+    log_netpay = log(netpay_clean)
+  )
+
+# Step 2: Create income tertiles
+covid_combined <- covid_combined %>%
+  mutate(
+    income_group = ntile(log_netpay, 3),  # 1 = low, 2 = middle, 3 = high
+    low_income = if_else(income_group == 1, 1, 0),
+    mid_income = if_else(income_group == 2, 1, 0),
+    high_income = if_else(income_group == 3, 1, 0)
+  )
+
+# Step 3: Create interactions (treat low_income as the base group)
+covid_combined <- covid_combined %>%
+  mutate(
+    furlough_x_midinc = furlough_status * mid_income,
+    furlough_x_highinc = furlough_status * high_income,
+
+    low_wfh_x_midinc = low_wfh * mid_income,
+    low_wfh_x_highinc = low_wfh * high_income
+  )
+
+# Step 4: Run IV regression with interactions by income group
+income_hetero_iv <- ivreg(
+  ghq_cognitive ~ furlough_status + furlough_x_midinc + furlough_x_highinc +
+    age + sex + couple + factor(wave_short) |
+  low_wfh + low_wfh_x_midinc + low_wfh_x_highinc +
+    age + sex + couple + factor(wave_short),
+  data = covid_combined
+)
+
+# Step 5: View results
+summary(income_hetero_iv, diagnostics = TRUE)
+
+
+```
+
+
+```{r heterogeniety by other factors}
+covid_combined <- covid_combined %>%
+  mutate(
+    over_40 = if_else(age > 40, 1, 0),
+    in_couple = if_else(couple == 1, 1, 0),
+
+    # Interactions with furlough
+    furlough_x_over40 = furlough_status * over_40,
+    furlough_x_male   = furlough_status * male,
+    furlough_x_couple = furlough_status * in_couple,
+
+    # Interactions with instrument
+    low_wfh_x_over40 = low_wfh * over_40,
+    low_wfh_x_male   = low_wfh * male,
+    low_wfh_x_couple = low_wfh * in_couple
+  )
+
+library(ivreg)
+
+hetero_iv_model <- ivreg(
+  ghq_cognitive ~ furlough_status + furlough_x_over40 + furlough_x_male + furlough_x_couple +
+    age + sex + couple + factor(wave_short) |
+    low_wfh + low_wfh_x_over40 + low_wfh_x_male + low_wfh_x_couple +
+    age + sex + couple + factor(wave_short),
+  data = covid_combined
+)
+
+summary(hetero_iv_model)
+
+# To investigate whether the impact of furlough on cognitive mental health varies across key subgroups, we estimated an interacted IV model. Specifically, we interacted furlough_status and the instrument low_wfh with age group (over 40), gender (male), and relationship status (in a couple).
+# 
+# The main effect of furlough remains negative (-0.4515) and weakly significant at the 10% level (p = 0.064), suggesting a potential deterioration in cognitive mental health due to furlough across the baseline group.
+# 
+# However, none of the interaction terms are statistically significant:
+# 
+# furlough_x_over40 (−0.076, p = 0.65)
+# furlough_x_male (+0.316, p = 0.29)
+# furlough_x_couple (−0.251, p = 0.44)
+# These estimates imply no robust evidence of heterogeneity in the effect of furlough by age, gender, or relationship status. Although point estimates differ in direction, the large standard errors limit firm conclusions.
+# 
+# This result suggests that, conditional on controls, the mental health effect of furlough appears broadly similar across demographic subgroups.
+```
+
