@@ -1,0 +1,340 @@
+---
+title: "comb table"
+output: html_document
+date: "2025-02-17"
+---
+
+```{r Loading libraries, message=FALSE}
+library(tidyverse)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthhires)  
+library(rnaturalearthdata)
+library(haven)
+rm(list = ls())
+
+```
+
+
+```{r Datasets}
+df_2022 <- read_sav("~/Desktop/Dissertation /Nigeria Round 9 data (2022)")
+df_2021 <- read_sav("~/Desktop/Dissertation /Nigeria Round 8 data (2021)")
+df_2018 <- read_sav("~/Desktop/Dissertation /Nigeria Round 7 data (2017)")
+df_2015 <- read_sav("~/Desktop/Dissertation /Nigeria Round 6 data (2015)")
+df_2012 <- read_sav("~/Desktop/Dissertation /Nigeria Round 5 data (2013)")
+df_2008 <- read_sav("~/Desktop/Dissertation /Nigeria Round 4 data (2008)")
+df_2005 <- read_sav("~/Desktop/Dissertation /Nigeria Round 3 data (2005)")
+df_2003 <- read_sav("~/Desktop/Dissertation /Nigeria Round 2 data (2003)")
+df_2001 <- read_sav("~/Desktop/Dissertation /Nigeria Round 1.5 data (2001)")
+df_1999 <- read_sav("~/Desktop/Dissertation /Nigeria Round 1 data (1999)")
+
+```
+
+```{r Dictionary}
+column_mappings <- list(
+    "1999" = c("ID" = "RESPNO","gender" = "GENDER", "age" = "Q1", "education" = "Q4", "employment" = "Q9","state" = "Q101", "Urban/Rural" = "Q102", "support for democracy" = "Q36"),
+    "2001" = c("ID" = "respno","gender" = "q96", "age" = "q80", "education" = "q84", "employment" = "q89","state" = "state", "Urban/Rural" = "urbrur", "support for democracy" = "supdemx1"),
+    "2003" = c("ID" = "respno","gender" = "q96", "age" = "q80", "education" = "q84", "employment" = "q89","state" = "regon2", "Urban/Rural" = "urbrur", "support for democracy" = "q38"),
+    "2005" = c("ID" = "RESPNO","gender" = "Q101", "age" = "Q1", "education" = "Q90", "employment" = "Q94", "state" = "REGION", "Urban/Rural" = "URBRUR", "support for democracy" = "Q37"),
+    "2008" = c("ID" = "RESPNO","gender" = "Q101", "age" = "Q1", "education" = "Q89", "employment" = "Q94", "state" = "REGION", "Urban/Rural" = "URBRUR", "support for democracy" = "Q30"),
+    "2012" = c("ID" = "RESPNO","gender" = "Q101", "age" = "Q113", "education" = "Q117", "employment" = "Q96", "state" = "REGION", "Urban/Rural" = "URBRUR", "support for democracy" = "Q32"),
+    "2015" = c("ID" = "RESPNO","gender" = "Q101", "age" = "Q1", "education" = "Q97", "employment" = "Q95A", "state" = "REGION", "Urban/Rural" = "URBRUR", "support for democracy" = "Q21"),
+    "2018" = c("ID" = "RESPNO","gender" = "Q101", "age" = "Q1", "education" = "Q97", "employment" = "Q94", "state" = "REGION", "Urban/Rural" = "URBRUR", "support for democracy" = "Q28"),
+    "2021" = c("ID" = "RESPNO","gender" = "Q101", "age" = "Q1", "education" = "Q97", "employment" = "Q95A","state" = "REGION", "Urban/Rural" = "URBRUR", "support for democracy" = "Q21"),
+    "2022" = c("ID" = "RESPNO","gender" = "Q101", "age" = "Q1", "education" = "Q94", "employment" = "Q93A", "state" = "REGION", "Urban/Rural" = "URBRUR", "support for democracy" = "Q23")
+)
+
+```
+
+```{r Making a function }
+rename_correctly <- function(df, year) {
+  mapping <- column_mappings[[as.character(year)]]
+
+  if (!is.null(mapping)) {
+    df <- df %>%
+      rename(all_of(mapping))
+  }
+
+  df %>%
+    mutate(year = year)  # Add the year column
+}
+```
+
+```{r Applying Function }
+df_1999 <- rename_correctly(df_1999, 1999)
+df_2001 <- rename_correctly(df_2001, 2001)
+df_2003 <- rename_correctly(df_2003, 2003)
+df_2005 <- rename_correctly(df_2005, 2005)
+df_2008 <- rename_correctly(df_2008, 2008)
+df_2012 <- rename_correctly(df_2012, 2012)
+df_2015 <- rename_correctly(df_2015, 2015)
+df_2018 <- rename_correctly(df_2018, 2018)
+df_2021 <- rename_correctly(df_2021, 2021)
+df_2022 <- rename_correctly(df_2022, 2022)
+
+```
+
+
+```{r fuction for year}
+year_col <- function(df,year){
+df$year <- year
+return(df)
+}
+
+df_1999 <- year_col(df_1999, 1999)
+df_2001 <- year_col(df_2001, 2001)
+df_2003 <- year_col(df_2003, 2003)
+df_2005 <- year_col(df_2005, 2005)
+df_2008 <- year_col(df_2008, 2008)
+df_2012 <- year_col(df_2012, 2012)
+df_2015 <- year_col(df_2015, 2015)
+df_2018 <- year_col(df_2018, 2018)
+df_2021 <- year_col(df_2021, 2021)
+df_2022 <- year_col(df_2022, 2022)
+
+```
+
+```{r Function for combining}
+select_relevant <- function(df){
+  df %>% 
+    select(
+      "ID",
+      "support for democracy",
+      "Urban/Rural",
+      "age",
+      "gender",
+      "education",
+      "employment",
+      "state",
+      "year"
+    )
+}
+```
+
+```{r applying function for combining}
+df_1999 <- select_relevant(df_1999)
+df_2001 <- select_relevant(df_2001)
+df_2003 <- select_relevant(df_2003)
+df_2005 <- select_relevant(df_2005)
+df_2008 <- select_relevant(df_2008)
+df_2012 <- select_relevant(df_2012)
+df_2015 <- select_relevant(df_2015)
+df_2018 <- select_relevant(df_2018)
+df_2021 <- select_relevant(df_2021)
+df_2022 <- select_relevant(df_2022)
+```
+
+
+```{r standardizing labels}
+#consistent democracy label
+df_1999 <- df_1999 %>% 
+  mutate(`support for democracy`= case_when(
+    `support for democracy` == 1 ~ 3,
+    `support for democracy` == 3 ~ 1,
+    `support for democracy` == 2 ~ 2,  # Leave 2 unchanged
+    TRUE ~ NA_real_  # Remove all other values by setting them to NA
+  ))
+
+#consistent state labels
+df_1999$state <- factor(df_1999$state, 
+  levels = 1:38, 
+  labels = c("Abia", "Adamawa", "Akwa-Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
+             "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT", "Gombe", "Imo",
+             "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos",
+             "Nasarawa", "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers",
+             "Sokoto", "Taraba", "Yobe", "Zamfara", "No Answer"))
+
+df_2001$state <- factor(df_2001$state, 
+  levels = 1:38, 
+  labels = c("Abia", "Adamawa", "Akwa-Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
+             "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT", "Gombe", "Imo",
+             "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos",
+             "Nasarawa", "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers",
+             "Sokoto", "Taraba", "Yobe", "Zamfara", "No Answer"))
+
+df_2005$state <- factor(df_2005$state, 
+  levels = c(340:359, 550:560), 
+  labels = c("Lagos", "Ogun", "Oyo", "Osun", "Ondo", "Ekiti", "Enugu", "Anambra", "Imo", 
+             "Abia", "Akwa-Ibom", "Bayelsa", "Cross-River", "Delta", "Edo", "Rivers", "Kano",
+             "Sokoto", "Kaduna", "Katsina", "Zamfara", "Bauchi", "Borno", "Adamawa", 
+             "Taraba", "Plateau", "Benue", "Kogi", "Kwara", "Niger", "FCT"))
+
+df_2008$state <- factor(df_2008$state, 
+  levels = 620:645, 
+  labels = c("Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
+             "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT", "Gombe", "Imo",
+             "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos", "Nasarawa"))
+
+df_2012$state <- factor(df_2012$state, 
+  levels = 620:656, 
+  labels = c("Abia", "Adamawa", "Akwa-Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
+             "Cross-River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT", "Gombe", "Imo",
+             "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos", "Nasarawa",
+             "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers", "Sokoto", "Taraba",
+             "Yobe", "Zamfara"))
+
+df_2015$state <- factor(df_2015$state, 
+  levels = 620:656, 
+  labels = c("Abia", "Adamawa", "Akwa-Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
+             "Cross-River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT", "Gombe", "Imo",
+             "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos", "Nasarawa",
+             "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers", "Sokoto", "Taraba",
+             "Yobe", "Zamfara"))
+
+
+df_2018$state <- factor(df_2018$state, 
+  levels = 620:656, 
+  labels = c("Abia", "Adamawa", "Akwa-Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
+             "Cross-River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT", "Gombe", "Imo",
+             "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos", "Nasarawa",
+             "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers", "Sokoto", "Taraba",
+             "Yobe", "Zamfara"))
+
+df_2021$state <- factor(df_2021$state, 
+  levels = 620:656, 
+  labels = c("Abia", "Adamawa", "Akwa-Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
+             "Cross-River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT", "Gombe", "Imo",
+             "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos", "Nasarawa",
+             "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers", "Sokoto", "Taraba",
+             "Yobe", "Zamfara"))
+
+
+df_2022$state <- factor(df_2022$state, 
+  levels = 620:656, 
+  labels = c("Abia", "Adamawa", "Akwa-Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
+             "Cross-River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT", "Gombe", "Imo",
+             "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos", "Nasarawa",
+             "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers", "Sokoto", "Taraba",
+             "Yobe", "Zamfara"))
+
+
+# Convert ID to character for all datasets
+
+# This means ID is stored as a number (double) in some datasets and as a character in others. You need to convert all ID columns to character before combining.
+
+df_list <- list(df_1999, df_2001, df_2003, df_2005, df_2008, df_2012, df_2015, df_2018, df_2021, df_2022)
+
+
+# Function to convert all columns to characters
+conversion <- function(df) {
+  df[] <- lapply(df, as.character)
+  return(df)
+}
+
+# Apply the function to the list
+df_list <- lapply(df_list, conversion)
+
+# Check the result
+#str(df_list) # All columns should now be characters
+
+```
+
+
+```{r combining surveys failure}
+survey <- bind_rows(df_list)
+survey
+```
+```{r cleaning and final edits}
+#categrical v, missing info , or unanswered etc,
+```
+
+
+```{r cleaning and final edits}
+survey <- survey %>% 
+  filter(
+    !`support for democracy` %in% c(NA, "8", "9"),
+    !age %in% c("999", "998"),
+    !employment %in% c("9", "8", "-1", "998"),
+    !education %in% c("10","99", "-1","98"),
+    !state %in% c("NA")
+  )
+
+survey <- survey %>%
+  mutate(`Urban/Rural` = case_when(
+    year == "2008" & `Urban/Rural` == "2" ~ "1",  # Change 2 to 1 only for 2008
+    year == "2008" & `Urban/Rural` == "3" ~ "2",  # Change 3 to 2 only for 2008
+    TRUE ~ `Urban/Rural`,  # Keep all other values unchanged
+  ))
+
+survey <- survey %>%
+  mutate(education = case_when(
+    education == "1" ~ "0", 
+    TRUE ~ education,  # Keep all other values unchanged
+  ))
+
+survey <- survey %>%
+  filter(!(year == "1999" & employment == "2"))  # Removes employment == 2 in 1999
+
+survey <- survey %>% 
+  filter(!state == "NA")
+
+survey <- survey %>%
+  mutate(employment = ifelse(year == "1999" & employment == "0", "1",
+                      ifelse(year == "1999" & employment == "1", "0", employment)))
+
+survey <- survey %>% 
+  mutate(
+    state = ifelse(state == "Abuja", "FCT",
+            ifelse(state == "Akwa Ibom", "Akwa-Ibom",
+            ifelse(state == "Cross River", "Cross-River", state)))
+  )
+
+survey <- survey %>%
+  mutate(employment = case_when(
+    year %in% c("2001", "2003", "2005", "2008", 
+             "2012", "2015", "2018","2021", "2022") & employment %in% c("2", "3", "4","5") ~ "1",
+    year %in% c("2001", "2003", "2005", "2008", 
+             "2012", "2015", "2018","2021","2022")  & employment %in% c("0", "1") ~ "0", 
+    TRUE ~ employment,  # Keep all other values unchanged
+  ))
+
+```
+
+
+```{r changing to factors}
+survey <- survey %>%
+  mutate(
+    ID = as.numeric(gsub("[^0-9]", "", ID)),  # Fixes ID issue as some contain letters
+    `support for democracy` = as.integer(`support for democracy`),  # or as.factor()
+    `Urban/Rural` = as.factor(`Urban/Rural`),
+    age = as.integer(age),
+    gender = as.factor(gender),
+    education = as.factor(education),
+    employment = as.factor(employment),
+    state = as.factor(state), 
+    year = as.integer(year)
+  )
+
+```
+
+```{r saving this dataset}
+
+write.csv(survey, file = "~/Desktop/Dissertation /survey.csv", row.names = FALSE)
+
+```
+
+
+```{r temporary combination }
+convert_to_character <- function(df) {
+  df %>%
+    mutate(across(everything(), as.character))  # Convert all columns to character
+}
+
+# Apply to all datasets
+df_1999 <- convert_to_character(df_1999)
+df_2001 <- convert_to_character(df_2001)
+df_2003 <- convert_to_character(df_2003)
+df_2005 <- convert_to_character(df_2005)
+df_2008 <- convert_to_character(df_2008)
+df_2012 <- convert_to_character(df_2012)
+df_2015 <- convert_to_character(df_2015)
+df_2018 <- convert_to_character(df_2018)
+df_2021 <- convert_to_character(df_2021)
+df_2022 <- convert_to_character(df_2022)
+
+# Merge all datasets
+survey <- bind_rows(df_1999, df_2001, df_2003, df_2005, df_2008,
+                    df_2012, df_2015, df_2018, df_2021, df_2022)
+
+```
+

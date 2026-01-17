@@ -1,0 +1,140 @@
+---
+title: "Complete dataset"
+output: html_document
+date: "2025-02-19"
+---
+
+```{r message=FALSE}
+library(tidyverse)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthhires)  
+library(rnaturalearthdata)
+library(haven)
+library(tidyr)
+rm(list = ls())
+```
+
+```{r datasets}
+survey <- read.csv("~/Desktop/Dissertation /survey.csv")
+nigeria_states <- ne_states(country = "Nigeria", returnclass = "sf")
+nigeria_states <- nigeria_states %>% 
+  mutate(
+    name = recode(name,
+                  "Akwa Ibom" = "Akwa-Ibom",
+                  "Cross River" = "Cross-River",
+                  "Federal Capital Territory" = "FCT")) %>% 
+  rename(state = name)
+  
+nigeria_states <- nigeria_states %>% 
+  select(state, longitude, latitude)
+
+  
+```
+
+
+```{r Percentage}
+survey <- survey %>% 
+   group_by(state, year) %>% 
+  mutate(
+    total_response = n(),
+    democracy_supporters = sum(support.for.democracy == 3),
+    support_percentage = democracy_supporters/total_response * 100
+  )
+```
+
+```{r combination}
+survey <- left_join(survey, nigeria_states, by = "state")
+```
+
+```{r crime data prep, message=FALSE}
+crime <- read.csv("~/Desktop/Dissertation /Africa_1997-2025_Jan31.csv")
+crime <- crime %>% 
+  filter( country == "Nigeria", year >= 1999, year <= 2022) %>% 
+  select(state = admin1, year, event_type, disorder_type, fatalities)
+
+crime <- crime %>% 
+  filter(state != "")
+```
+
+there is a big problem, the fatalities have to be by state not aggregate fatalities
+
+```{r pivoting}
+library(dplyr)
+library(tidyr)
+
+# Create event type counts per state-year
+event_counts <- crime %>%
+  group_by(state, year, event_type) %>%
+  summarise(event_count = n(), .groups = "drop") %>%
+  pivot_wider(names_from = event_type, values_from = event_count, values_fill = 0)
+
+# Create total fatalities per event type per state-year
+fatality_counts <- crime %>%
+  group_by(state, year, event_type) %>%
+  summarise(fatality_count = sum(fatalities, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = event_type, values_from = fatality_count, values_fill = 0, names_prefix = "Fatalities_")
+
+# Merge the counts back into the original dataset
+crime<- crime %>%
+  left_join(event_counts, by = c("state", "year")) %>%
+  left_join(fatality_counts, by = c("state", "year"))
+```
+
+
+
+
+```{r Combination}
+# Aggregate crime data so each state-year appears only once
+library(dplyr)
+
+# Aggregate crime data so each state-year appears only once
+crime_agg <- crime %>%
+  group_by(state, year) %>%
+  summarise(
+    total_fatalities = sum(fatalities, na.rm = TRUE),  # Sum all fatalities per state-year
+    total_events = n(),  # Count total events per state-year
+    Battles_count = sum(event_type == "Battles", na.rm = TRUE), 
+    Riots_count = sum(event_type == "Riots", na.rm = TRUE), 
+    Protests_count = sum(event_type == "Protests", na.rm = TRUE),
+    Violence_against_civilians_count = sum(event_type == "Violence against civilians", na.rm = TRUE),
+    Explosions_Remote_violence_count = sum(event_type == "Explosions/Remote violence", na.rm = TRUE),
+    Strategic_developments_count = sum(event_type == "Strategic developments", na.rm = TRUE),
+    Fatalities_Battles = sum(fatalities * (event_type == "Battles"), na.rm = TRUE),  
+    Fatalities_Riots = sum(fatalities * (event_type == "Riots"), na.rm = TRUE),
+    Fatalities_Protests = sum(fatalities * (event_type == "Protests"), na.rm = TRUE),
+    Fatalities_Violence_against_civilians = sum(fatalities * (event_type == "Violence against civilians"), na.rm = TRUE),
+    Fatalities_Explosions_Remote_violence = sum(fatalities * (event_type == "Explosions/Remote violence"), na.rm = TRUE),
+    Fatalities_Strategic_developments = sum(fatalities * (event_type == "Strategic developments"), na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+# Calculate total fatalities and total events per year across all states
+yearly_summary <- crime_agg %>%
+  group_by(year) %>%
+  summarise(
+    yearly_total_fatalities = sum(total_fatalities, na.rm = TRUE),  # Sum fatalities for the year
+    yearly_total_events = sum(total_events, na.rm = TRUE)  # Sum total events for the year
+  ) %>%
+  ungroup()
+
+# Merge with the crime_agg dataset
+crime_agg <- crime_agg %>%
+  left_join(yearly_summary, by = "year")
+
+# Merge with the survey dataset by "state" and "year"
+final_dataset <- survey %>%
+  left_join(crime_agg, by = c("state", "year"))
+
+# Display the result
+final_dataset
+
+
+```
+
+```{r saving }
+
+write.csv(final_dataset, file ="final_dataset.csv ", row.names = FALSE)
+write.csv(crime_agg, file = "crime_agg.csv", row.names = FALSE)
+```
+
