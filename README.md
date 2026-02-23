@@ -15,3 +15,19 @@ Description: Examines the causal effect of sustained exposure to violent conflic
 Methods: Difference-in-Differences, Event Study, fixed effects.
 Data: Afrobarometer (public), ACLED (public).
 Status: Replication code and documentation available.
+
+## Data Sources
+### 1. Afrobarometer (Nigeria, Rounds 1–9)
+Public opinion survey data used to measure democratic attitudes and political trust.
+Codebooks and documentation available at:
+https://www.afrobarometer.org/data/
+
+### 2. ACLED (Armed Conflict Location & Event Data Project)
+Conflict event data used to measure exposure to Boko Haram violence.
+Documentation and access information:
+https://acleddata.com/
+
+### 3. UK Household Longitudinal Study (UKHLS) – COVID-19 Waves
+Panel data used to analyse the effects of furlough on cognitive mental health.
+Study documentation available at:
+https://www.understandingsociety.ac.uk/
