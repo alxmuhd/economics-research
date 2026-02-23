@@ -31,3 +31,9 @@ https://acleddata.com/
 Panel data used to analyse the effects of furlough on cognitive mental health.
 Study documentation available at:
 https://www.understandingsociety.ac.uk/
+
+## Replication Instructions
+1. Download Afrobarometer data (Rounds 1–9) from the official website.
+2. Register and download ACLED conflict event data.
+3. Access UKHLS COVID waves via UK Data Service.
+4. Update file paths in the scripts before running.
