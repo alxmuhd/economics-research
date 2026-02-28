@@ -16,6 +16,9 @@ Methods: Difference-in-Differences, Event Study, fixed effects.
 Data: Afrobarometer (public), ACLED (public).
 Status: Replication code and documentation available.
 
+3. GIS Portfolio — Spatial Analysis in R
+Description: Demonstrates applied spatial data analysis across seven GIS workflows using R. Covers vector and raster data handling, coordinate reference systems, spatial intersection, digital elevation modelling, satellite imagery processing, and population density mapping. Data sources include GADM, OpenStreetMap, Natural Earth, AWS Terrain Tiles, Sentinel-2 (ESA), and WorldPop. Output: reproducible R Markdown document rendered to PDF.
+
 ## Data Sources
 ### 1. Afrobarometer (Nigeria, Rounds 1–9)
 Public opinion survey data used to measure democratic attitudes and political trust.
