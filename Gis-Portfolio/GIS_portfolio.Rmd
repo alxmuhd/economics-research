@@ -1,0 +1,439 @@
+---
+title: "GIS Portfolio"
+subtitle: "Spatial Analysis & Mapping in R"
+author: "Muhammad Abubakar"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+    fig_caption: true
+    latex_engine: xelatex
+geometry: margin=2.5cm
+fontsize: 11pt
+header-includes:
+  - \usepackage{fancyhdr}
+  - \pagestyle{fancy}
+  - \fancyhead[L]{GIS Portfolio}
+  - \fancyhead[R]{\thepage}
+  - \fancyfoot[C]{}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo       = TRUE,    # Show code
+  warning    = FALSE,
+  message    = FALSE,
+  fig.align  = "center"
+)
+```
+
+\newpage
+
+# Introduction
+
+This portfolio demonstrates competency in spatial data analysis and GIS using R. It covers the six core pillars of practical GIS work: administrative boundary data, OpenStreetMap vector features, Natural Earth global datasets, spatial intersection and clipping operations, raster elevation modelling, satellite imagery processing, and population density rasters. Together these skills support the kinds of spatial and real estate analysis common in urban planning, economic research, and site assessment contexts.
+
+\newpage
+
+# Administrative Boundaries — GADM
+
+## Overview
+
+Administrative boundaries are the backbone of spatial economic analysis. The `geodata` package provides access to the Global Administrative Map (GADM) database, which holds boundaries for every country at multiple administrative levels (national, state/province, district, and below).
+
+Here we download Brazil's Level 1 boundaries (states), export them to both shapefile and GeoPackage formats, and produce a clean map. Being able to export to `.shp` and `.gpkg` is important for interoperability with QGIS, ArcGIS, and other GIS software.
+
+```{r brazil-map, fig.width=9, fig.height=7, fig.cap="Brazil state-level administrative boundaries sourced from GADM via the geodata package."}
+
+# Load packages
+library(geodata)
+library(sf)
+library(ggplot2)
+
+# Fetch Brazil admin boundaries at state level (level 1)
+brazil <- geodata::gadm(
+  country = "BRA",
+  level   = 1,
+  path    = tempdir()
+) |>
+  sf::st_as_sf()
+
+# Export as Shapefile (produces .shp, .dbf, .shx, .prj files)
+sf::st_write(brazil, "brazil_sf.shp", delete_layer = TRUE, quiet = TRUE)
+
+# Export as GeoPackage (modern single-file format — preferred)
+sf::st_write(brazil, "brazil_sf.gpkg", delete_dsn = TRUE, quiet = TRUE)
+
+# Plot
+ggplot(brazil) +
+  geom_sf(fill = "dodgerblue", color = "white", linewidth = 0.3) +
+  coord_sf(expand = FALSE) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title    = "Brazil — Administrative Boundaries (State Level)",
+    subtitle = "Source: GADM via geodata package",
+    caption  = "Exported to .shp and .gpkg for GIS interoperability"
+  ) +
+  theme(
+    plot.title    = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, color = "grey50")
+  )
+```
+
+\newpage
+
+# OpenStreetMap Vector Data — Road Networks
+
+## Overview
+
+OpenStreetMap (OSM) is the world's largest open geographic database, crowdsourced and continuously updated. The `osmextract` package allows bulk download of OSM data by country, which can then be filtered to features of interest. Here, road network data for the Netherlands is downloaded and clipped to Amsterdam's bounding box.
+
+Roads are then classified by hierarchy — motorways and trunk roads are displayed prominently, while secondary and tertiary roads form a lighter background layer. This kind of hierarchical road mapping is directly relevant to accessibility analysis and transport infrastructure assessments.
+
+```{r amsterdam-roads, fig.width=9, fig.height=7, fig.cap="Amsterdam road network, stratified by road classification from OpenStreetMap. Darker lines indicate higher-order roads (motorways, trunk), lighter lines show secondary and tertiary roads."}
+
+library(osmextract)
+library(sf)
+library(dplyr)
+library(ggplot2)
+
+# Define bounding box for Amsterdam
+bbox <- sf::st_as_sfc(
+  sf::st_bbox(c(xmin = 4.73, ymin = 52.28, xmax = 5.08, ymax = 52.43), crs = 4326)
+)
+
+# Download OSM road data for the Netherlands, clipped to Amsterdam bbox
+roads <- oe_get(
+  place    = "Netherlands",
+  layer    = "lines",
+  boundary = bbox,
+  quiet    = TRUE
+) |>
+  filter(highway %in% c("motorway", "trunk", "primary", "secondary", "tertiary"))
+
+# Plot with hierarchical styling
+ggplot() +
+  # Background: secondary and tertiary roads (lightest)
+  geom_sf(
+    data      = roads |> filter(highway %in% c("secondary", "tertiary")),
+    color     = "grey75",
+    linewidth = 0.3
+  ) +
+  # Mid: primary roads
+  geom_sf(
+    data      = roads |> filter(highway == "primary"),
+    color     = "grey40",
+    linewidth = 0.6
+  ) +
+  # Top: motorways and trunk roads (darkest)
+  geom_sf(
+    data      = roads |> filter(highway %in% c("motorway", "trunk")),
+    color     = "black",
+    linewidth = 0.8
+  ) +
+  coord_sf(expand = FALSE) +
+  theme_void(base_size = 13) +
+  labs(
+    title    = "Amsterdam — Road Network by Classification",
+    subtitle = "Source: OpenStreetMap via osmextract",
+    caption  = "Black = motorway/trunk | Grey = primary | Light grey = secondary/tertiary"
+  ) +
+  theme(
+    plot.title    = element_text(hjust = 0, size = 16, face = "bold"),
+    plot.subtitle = element_text(hjust = 0, color = "grey50"),
+    plot.caption  = element_text(hjust = 0, color = "grey60", size = 8),
+    plot.margin   = unit(c(1, 1, 1, 1), "cm")
+  )
+```
+
+\newpage
+
+# Natural Earth Global Data — World Lakes
+
+## Overview
+
+Natural Earth is a public domain cartographic dataset providing physical and cultural vector data at multiple scales. It is widely used for basemaps and context layers in professional cartography.
+
+This section demonstrates downloading the global lakes layer at high resolution (1:10m scale) and plotting it as a clean reference map. Mapping physical features such as water bodies is a core skill in land-use analysis, environmental siting studies, and ecological corridor assessments.
+
+```{r world-lakes, fig.width=10, fig.height=5, fig.cap="Major world lakes sourced from Natural Earth at 1:10m scale."}
+
+library(rnaturalearth)
+library(sf)
+library(ggplot2)
+
+# Download world lakes at 1:10m resolution
+world_lakes <- rnaturalearth::ne_download(
+  scale      = 10,
+  type       = "lakes",
+  category   = "physical",
+  returnclass = "sf"
+)
+
+# Plot
+ggplot(world_lakes) +
+  geom_sf(color = "dodgerblue", fill = "lightblue", linewidth = 0.2, alpha = 0.7) +
+  theme_void(base_size = 13) +
+  labs(
+    title    = "World — Major Lakes",
+    subtitle = "Source: Natural Earth (1:10m physical data)",
+    caption  = "Demonstrating download and visualisation of Natural Earth physical features"
+  ) +
+  theme(
+    plot.title    = element_text(hjust = 0, size = 14, face = "bold"),
+    plot.subtitle = element_text(hjust = 0, color = "grey50"),
+    plot.caption  = element_text(hjust = 0, color = "grey60", size = 8),
+    plot.margin   = unit(c(0.5, 0.5, 0.5, 0.5), "cm")
+  )
+```
+
+\newpage
+
+# Spatial Clipping & Intersection — Canadian Lakes
+
+## Overview
+
+One of the most common GIS operations is clipping one dataset to the extent of another — for example, extracting features within a country boundary, or overlaying infrastructure with planning zones. This section demonstrates a full clip workflow: downloading a country boundary, downloading a global lakes layer, matching coordinate reference systems (CRS), and using `st_intersection()` to retain only lakes that fall within Canada.
+
+This workflow is directly applicable to urban economic analysis tasks such as identifying green space, waterfronts, or land use within a defined study area.
+
+```{r canada-lakes, fig.width=8, fig.height=7, fig.cap="Lakes within Canada, produced by intersecting the Natural Earth lakes layer with the Canadian national boundary."}
+
+library(sf)
+library(ggplot2)
+library(rnaturalearth)
+
+# Disable s2 spherical geometry engine (more robust for complex intersection ops)
+sf::sf_use_s2(FALSE)
+
+# 1) Canada national boundary
+canada <- ne_countries(
+  scale      = "medium",
+  country    = "Canada",
+  returnclass = "sf"
+) |>
+  st_make_valid()  # Repair any invalid geometry
+
+# 2) Global lakes layer
+lakes <- ne_download(
+  scale      = 10,
+  type       = "lakes",
+  category   = "physical",
+  returnclass = "sf"
+) |>
+  st_make_valid()
+
+# 3) Match CRS to Canada boundary
+lakes <- st_transform(lakes, st_crs(canada))
+
+# 4) Crop to Canada's bounding box first (faster), then clip precisely
+lakes_crop   <- st_crop(lakes, st_bbox(canada))
+lakes_canada <- st_intersection(lakes_crop, canada)
+
+# 5) Plot
+ggplot() +
+  geom_sf(data = canada,       fill = "grey95", color = "grey60", linewidth = 0.4) +
+  geom_sf(data = lakes_canada, fill = "lightblue", color = "dodgerblue", linewidth = 0.3) +
+  coord_sf(expand = FALSE) +
+  theme_void(base_size = 13) +
+  labs(
+    title    = "Canada — Lakes (Spatial Intersection Workflow)",
+    subtitle = "Source: Natural Earth | Operation: st_intersection()",
+    caption  = "Demonstrates CRS matching, bounding box crop, and polygon intersection"
+  ) +
+  theme(
+    plot.title    = element_text(hjust = 0, size = 15, face = "bold"),
+    plot.subtitle = element_text(hjust = 0, color = "grey50"),
+    plot.caption  = element_text(hjust = 0, color = "grey60", size = 8),
+    plot.margin   = unit(c(0.5, 0.5, 0.5, 0.5), "cm")
+  )
+```
+
+\newpage
+
+# Raster Elevation Data — Digital Elevation Model (DEM)
+
+## Overview
+
+Raster data represents continuous surfaces through a grid of cells, each holding a value — elevation, temperature, population density, and so on. Digital Elevation Models (DEMs) are fundamental in site assessment, flood risk mapping, infrastructure planning, and topographic analysis.
+
+Here, elevation data for Switzerland is downloaded from AWS Terrain Tiles via the `elevatr` package. The result is a raster object that is visualised with a custom diverging colour palette to highlight the contrast between lowland areas and alpine terrain. The `terra` package, the modern successor to `raster`, is used for raster handling.
+
+```{r switzerland-dem, fig.width=7, fig.height=6, fig.cap="Digital Elevation Model (DEM) for Switzerland, downloaded from AWS Terrain Tiles. Colour scale ranges from low-lying areas (pink/orange) to high Alpine terrain (green)."}
+
+library(elevatr)
+library(geodata)
+library(sf)
+library(terra)
+
+# 1) Switzerland national boundary as area of interest (AOI)
+switzerland <- geodata::gadm(
+  country = "CHE",
+  level   = 0,
+  path    = tempdir()
+) |>
+  sf::st_as_sf()
+
+# 2) Download DEM from AWS Terrain Tiles
+#    z controls resolution: higher = finer detail, slower download
+elevation <- elevatr::get_elev_raster(
+  locations = switzerland,
+  z         = 8,
+  clip      = "locations"  # Clip raster to Switzerland boundary
+)
+
+# 3) Convert to terra SpatRaster for plotting
+elev_terra <- terra::rast(elevation)
+
+# 4) Custom colour palette: low = warm tones, high = green (elevation gradient)
+cols <- colorRampPalette(
+  c("#fddbc7", "#fdae61", "#fee08b", "#66bd63", "#1a9850")
+)(100)
+
+# 5) Plot
+terra::plot(
+  elev_terra,
+  col  = cols,
+  main = "Switzerland — Digital Elevation Model (AWS Terrain Tiles, z=8)"
+)
+```
+
+\newpage
+
+# Satellite Imagery — Sentinel-2 True Colour
+
+## Overview
+
+Sentinel-2 is a European Space Agency satellite constellation providing free, open multispectral imagery at 10m resolution. It is widely used in environmental monitoring, land cover mapping, urban growth analysis, and agricultural assessment.
+
+The `rsi` package provides a streamlined interface to download Sentinel-2 imagery for any area of interest and date range. Here, imagery is downloaded for the Bled area of Slovenia, then processed to produce a true-colour (RGB) composite. Post-processing steps include reflectance clamping, gamma correction (to brighten the image), and saturation enhancement to produce a visually clear, publication-quality output.
+
+```{r sentinel2, fig.width=7, fig.height=7, fig.cap="Sentinel-2 true-colour composite for the Bled area, Slovenia (July 2024). Left: raw composite; Right: gamma-corrected and saturation-enhanced version for visual clarity."}
+
+library(sf)
+library(terra)
+library(rsi)
+
+# 1) Define AOI — Bled, Slovenia — 3 km buffer
+aoi <- st_point(c(14.0955, 46.3639)) |>
+  st_sfc(crs = 4326) |>
+  st_transform(3857) |>
+  st_buffer(3000)
+
+# Optional: force sequential processing (more stable in knit environments)
+if (requireNamespace("future", quietly = TRUE)) {
+  future::plan(future::sequential)
+}
+
+# 2) Download Sentinel-2 imagery for a narrow date window
+output_filename <- "bled_slovenia.tif"
+
+rsi::get_sentinel2_imagery(
+  aoi             = aoi,
+  start_date      = "2024-07-16",
+  end_date        = "2024-07-19",
+  output_filename = output_filename
+)
+
+# 3) Load imagery and scale reflectance values to 0–255
+sentinel <- terra::rast(output_filename)
+
+upper_reflectance <- 3500
+sentinel_scaled <- (terra::clamp(sentinel, 0, upper_reflectance) / upper_reflectance) * 255
+
+# 4) Plot raw true-colour composite
+terra::plotRGB(
+  sentinel_scaled,
+  r    = which(names(sentinel_scaled) == "R"),
+  g    = which(names(sentinel_scaled) == "G"),
+  b    = which(names(sentinel_scaled) == "B"),
+  main = "Sentinel-2 RGB — Raw Composite"
+)
+
+# 5) Post-processing: gamma correction + saturation boost
+R <- sentinel_scaled[[which(names(sentinel_scaled) == "R")]]
+G <- sentinel_scaled[[which(names(sentinel_scaled) == "G")]]
+B <- sentinel_scaled[[which(names(sentinel_scaled) == "B")]]
+
+rgb   <- c(R, G, B)
+rgb01 <- rgb / 255  # Normalise to 0–1
+
+# Gamma correction (>1 = darker, <1 = brighter)
+gamma     <- 1.35
+rgb_gamma <- rgb01 ^ gamma
+
+# Saturation boost: pull each channel away from its grayscale intensity
+sat       <- 1.6
+intensity <- (rgb_gamma[[1]] + rgb_gamma[[2]] + rgb_gamma[[3]]) / 3
+
+rgb_sat       <- rgb_gamma
+rgb_sat[[1]]  <- intensity + sat * (rgb_gamma[[1]] - intensity)
+rgb_sat[[2]]  <- intensity + sat * (rgb_gamma[[2]] - intensity)
+rgb_sat[[3]]  <- intensity + sat * (rgb_gamma[[3]] - intensity)
+
+# Clamp to valid range and rescale to 0–255
+rgb_sat <- terra::clamp(rgb_sat, 0, 1)
+rgb_pop <- rgb_sat * 255
+
+# 6) Plot enhanced composite
+terra::plotRGB(rgb_pop, r = 1, g = 2, b = 3,
+               main = "Sentinel-2 RGB — Gamma Corrected & Saturation Enhanced")
+```
+
+\newpage
+
+# Population Density Raster — WorldPop
+
+## Overview
+
+WorldPop provides gridded population estimates at 100m resolution for every country, derived from census data and satellite imagery. It is an essential resource for urban economics, public health research, infrastructure planning, and humanitarian work.
+
+Here, Nepal's 2020 population raster (UN-adjusted estimates) is downloaded directly from the WorldPop data server, cropped and masked to the national boundary, and visualised on a log scale. The log transformation is applied because population data is highly skewed — the Kathmandu Valley and other cities contain orders of magnitude more people than rural areas — and a log scale allows meaningful visual differentiation across the whole country.
+
+```{r nepal-population, fig.width=8, fig.height=7, fig.cap="Nepal population density (WorldPop 2020, UN-adjusted estimates), visualised on a log scale. Warm colours indicate higher population density, concentrated in the Kathmandu Valley and Terai plains."}
+
+library(terra)
+library(geodata)
+
+# 1) Nepal national boundary (as SpatVector for terra operations)
+nepal <- geodata::gadm(country = "NPL", level = 0, path = tempdir())
+
+# 2) Load WorldPop 2020 population raster for Nepal (UN-adjusted)
+url <- "https://data.worldpop.org/GIS/Population/Global_2000_2020/2020/NPL/npl_ppp_2020_UNadj.tif"
+pop <- terra::rast(url)
+
+# 3) Crop raster to Nepal bounding box, then mask to boundary polygon
+pop_mask <- terra::mask(terra::crop(pop, nepal), nepal)
+
+# 4) Apply log1p transformation (log(1 + x)) to compress the dynamic range
+#    log1p handles zero values safely, unlike log()
+pop_log <- log1p(pop_mask)
+
+# 5) Plot with YlOrRd palette (yellow = low density, red = high density)
+terra::plot(
+  pop_log,
+  col  = hcl.colors(100, "YlOrRd"),
+  main = "Nepal — Population Density (WorldPop 2020, Log Scale)",
+  axes = FALSE,
+  box  = FALSE
+)
+```
+
+\newpage
+
+# Summary
+
+This portfolio has demonstrated six categories of GIS analysis in R, covering the main data types and operations encountered in professional spatial work:
+
+| Section | Data Source | Key Skills |
+|--------------------|--------------------------|--------------------------|
+| Administrative Boundaries | GADM | Vector download, CRS, export to .shp/.gpkg |
+| Road Networks | OpenStreetMap | OSM extract, feature filtering, hierarchical styling |
+| Global Physical Features | Natural Earth | Multi-scale download, global basemaps |
+| Spatial Clipping | Natural Earth | CRS matching, `st_crop()`, `st_intersection()` |
+| Elevation (DEM) | AWS Terrain Tiles | Raster download, `terra`, colour palette design |
+| Satellite Imagery | Sentinel-2 (ESA) | Multispectral download, RGB compositing, image enhancement |
+| Population Density | WorldPop | Gridded raster, log transformation, density mapping |
+
+These skills underpin spatial and real estate analysis, urban economic research, and site assessment - core competencies for integrating geographic insight into planning and design.
