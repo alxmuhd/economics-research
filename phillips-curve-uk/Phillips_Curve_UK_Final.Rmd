@@ -1,0 +1,561 @@
+---
+title: "Is the Phillips Curve Still Alive?"
+subtitle: "Evidence from UK Inflation Dynamics, 2008–2025"
+author: "Muhammad Abubakar"
+date: "`r format(Sys.Date(), '%B %Y')`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+    fig_caption: true
+    latex_engine: xelatex
+geometry: "left=1.8cm, right=1.8cm, top=2.5cm, bottom=2.5cm"
+fontsize: 11pt
+header-includes:
+  - \usepackage{fancyhdr}
+  - \pagestyle{fancy}
+  - \fancyhead[L]{Phillips Curve --- UK Inflation Dynamics}
+  - \fancyhead[R]{\thepage}
+  - \fancyfoot[C]{}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo      = TRUE,
+  warning   = FALSE,
+  message   = FALSE,
+  fig.align = "center",
+  fig.width = 7,
+  fig.height = 5
+)
+```
+
+\newpage
+
+# Introduction
+
+The Phillips curve, the empirical relationship between unemployment and inflation, is one of the most debated concepts in macroeconomics. Originally documented by A.W. Phillips in 1958, it posits that tighter labour markets generate upward wage pressure, which firms pass through to prices, resulting in higher inflation. For decades it guided monetary policy across advanced economies.
+
+Yet since the 1990s, the relationship has appeared to flatten: low unemployment no longer reliably predicts rising inflation. The COVID-19 pandemic and subsequent energy price shock then triggered the sharpest inflation surge in forty years, reigniting the debate. Did the Phillips curve simply come back to life, or were supply-side shocks doing the work that the labour market once did?
+
+This analysis investigates the UK Phillips curve over the period 2008 to 2025, using quarterly data on CPIH inflation, unemployment, and productivity. The analysis proceeds in five stages:
+
+1. **Data construction** — cleaning and merging ONS productivity, ONS unemployment, and ONS CPIH data
+2. **Baseline Phillips curve** — scatter plot and OLS regression of inflation on unemployment
+3. **Expectations-augmented model** — adding lagged inflation to control for inflation expectations
+4. **Structural break analysis** — testing whether the relationship changed before and after COVID-19
+5. **VAR model and impulse responses** — modelling inflation and unemployment jointly to capture dynamic feedback effects, with forecast error variance decomposition (FEVD)
+
+**Data sources:**
+
+- Productivity: ONS *Output per Hour Worked* (Table 18), quarterly
+- Unemployment: ONS Quarterly unemployment rate
+- Inflation: ONS CPIH Index (monthly, aggregated to quarterly)
+
+\newpage
+
+# Data Construction
+
+## Loading Packages
+
+```{r packages}
+library(readxl)
+library(dplyr)
+library(zoo)
+library(lubridate)
+library(stringr)
+library(ggplot2)
+library(lmtest)
+library(sandwich)
+library(dynlm)
+library(vars)
+library(stargazer)
+library(conflicted)
+conflicts_prefer(dplyr::select)
+conflicts_prefer(dplyr::filter)
+conflicts_prefer(dplyr::lag)
+```
+
+## Productivity Data
+
+The ONS *Output per Hour Worked* series is the primary measure of UK labour productivity. We load the raw Excel file, clean column names, convert quarter labels to proper dates, restrict to 2008 to 2025, and compute year-on-year (YoY) growth rates. YoY growth compares each quarter to the same quarter one year prior, removing seasonal effects without requiring explicit seasonal adjustment.
+
+```{r productivity}
+# Read ONS productivity spreadsheet — skip header rows
+prod_raw <- read_excel(
+  "~/Desktop/Econometrics R stuff/outputperhourworked.xlsx",
+  sheet = "Table_18",
+  skip  = 7
+)
+
+# Rename and clean: keep only rows with a proper quarter label (e.g. "2008 Q1")
+prod <- prod_raw %>%
+  rename(Quarter = 1, Productivity = 2) %>%
+  filter(!is.na(Quarter), grepl("Q", Quarter)) %>%
+  mutate(
+    # Convert "YYYY Qq" string to end-of-quarter date
+    date = as.Date(as.yearqtr(Quarter, format = "%Y Q%q"), frac = 1),
+    Productivity = as.numeric(Productivity)
+  ) %>%
+  select(date, Productivity) %>%
+  arrange(date)
+
+# Restrict to study window and compute YoY growth
+prod <- prod %>%
+  filter(date >= as.Date("2008-01-01"),
+         date <= as.Date("2025-12-31")) %>%
+  mutate(
+    # lag(4) = same quarter last year for quarterly data
+    Prod_yoy = 100 * (Productivity / lag(Productivity, 4) - 1)
+  )
+```
+
+## Unemployment Data
+
+```{r unemployment}
+# Load ONS quarterly unemployment rate
+unemp_raw <- read.csv("~/Desktop/Econometrics R stuff/quarterly_youth_umplymt.csv")
+
+unemp_q <- unemp_raw %>%
+  rename(Quarter = 1, Unemployment = 2) %>%
+  mutate(
+    date         = as.Date(as.yearqtr(Quarter, format = "%Y Q%q"), frac = 1),
+    Unemployment = as.numeric(Unemployment)
+  ) %>%
+  filter(date >= as.Date("2008-01-01"),
+         date <= as.Date("2025-12-31")) %>%
+  select(date, Unemployment) %>%
+  arrange(date)
+```
+
+## Inflation Data (CPIH)
+
+CPIH (Consumer Prices Index including owner occupiers' Housing costs) is the ONS's preferred headline inflation measure. The raw data is monthly; we compute monthly YoY inflation first, then aggregate to quarterly frequency by taking the end-of-quarter observation, which aligns with the other series.
+
+```{r inflation}
+# Load monthly CPIH index
+cpih_raw  <- read.csv("~/Desktop/Econometrics R stuff/cpih_index_uk.csv")
+value_col <- names(cpih_raw)[2]
+
+# Keep only monthly rows (format: "YYYY MON", e.g. "2010 JAN")
+cpih_m <- cpih_raw %>%
+  filter(str_detect(Title, "^[0-9]{4} [A-Z]{3}$")) %>%
+  transmute(
+    period = Title,
+    CPIH   = as.numeric(.data[[value_col]]),
+    date   = as.Date(as.yearmon(period, "%Y %b"), frac = 1)
+  ) %>%
+  arrange(date) %>%
+  mutate(
+    # YoY inflation: percentage change vs same month last year
+    CPIH_yoy = 100 * (CPIH / lag(CPIH, 12) - 1)
+  )
+
+# Aggregate to quarterly: take the last monthly observation in each quarter
+cpih_q <- cpih_m %>%
+  mutate(q = as.yearqtr(date)) %>%
+  group_by(q) %>%
+  summarise(
+    CPIH     = last(CPIH),
+    CPIH_yoy = last(CPIH_yoy),
+    .groups  = "drop"
+  ) %>%
+  mutate(date = as.Date(q, frac = 1)) %>%
+  filter(date >= as.Date("2008-01-01"),
+         date <= as.Date("2025-12-31")) %>%
+  select(date, CPIH, CPIH_yoy) %>%
+  arrange(date)
+```
+
+## Merging into a Single Panel
+
+```{r merge}
+# Left-join on date: productivity is the base (quarterly throughout)
+macro <- prod %>%
+  left_join(unemp_q, by = "date") %>%
+  left_join(cpih_q,  by = "date")
+
+# Remove rows with missing inflation or unemployment (first-year lags)
+pc_data <- macro %>%
+  filter(!is.na(CPIH_yoy), !is.na(Unemployment)) %>%
+  arrange(date)
+```
+
+\newpage
+
+# The Baseline Phillips Curve
+
+## Theory and Expectation
+
+The baseline Phillips curve posits a direct trade-off between the unemployment rate $u_t$ and CPIH inflation $\pi_t^{CPIH}$. Estimated by OLS over quarterly UK data from 2008 Q1 to 2025 Q4, the model takes the form:
+
+$$\pi_t^{CPIH} = \alpha + \beta \, u_t + \varepsilon_t, \qquad \varepsilon_t \sim WN(0, \sigma^2)$$
+
+where $\alpha$ captures the unconditional mean of inflation when the labour market is at its natural rate, and $\beta < 0$ is the Phillips curve slope. A coefficient of zero or positive sign would constitute evidence of curve flattening over this period.
+
+```{r phillips-scatter, fig.width=6.5, fig.height=5, fig.cap="UK Phillips Curve (2008--2025). Each point represents one quarter. The red line is the OLS fit with 95\\% confidence band."}
+
+ggplot(pc_data, aes(x = Unemployment, y = CPIH_yoy)) +
+  geom_point(color = "steelblue", alpha = 0.7, size = 2) +
+  geom_smooth(method = "lm", se = TRUE, color = "red", fill = "pink", alpha = 0.2) +
+  labs(
+    title    = "UK Phillips Curve (2008--2025)",
+    subtitle = "CPIH inflation (YoY %) vs unemployment rate (%)",
+    x        = "Unemployment Rate (%)",
+    y        = "CPIH Inflation (YoY %)",
+    caption  = "Sources: ONS CPIH Index; ONS Unemployment Rate"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title    = element_text(face = "bold"),
+    plot.subtitle = element_text(color = "grey50")
+  )
+```
+
+## OLS Regression Results
+
+```{r ols-baseline, results='asis'}
+model_baseline <- lm(CPIH_yoy ~ Unemployment, data = pc_data)
+
+stargazer(model_baseline,
+          type    = "latex",
+          title   = "Baseline Phillips Curve: OLS Estimates",
+          dep.var.labels = "CPIH Inflation (YoY \\%)",
+          covariate.labels = c("Unemployment Rate (\\%)", "Constant"),
+          keep.stat = c("n", "rsq", "adj.rsq", "f"),
+          notes     = "Standard errors in parentheses. * p<0.1, ** p<0.05, *** p<0.01",
+          notes.append = FALSE,
+          header  = FALSE)
+```
+
+The unemployment coefficient of $\hat{\beta} = -0.28$ is negative, consistent with the traditional Phillips curve. However, it is only marginally significant (p = 0.06) and the model explains less than 5% of the variation in inflation ($R^2 = 0.05$), pointing to a weak relationship over the full sample.
+
+\newpage
+
+# Expectations-Augmented Phillips Curve
+
+## Motivation
+
+The baseline model omits a crucial element: inflation expectations. New Keynesian theory, formalised in the hybrid New Keynesian Phillips Curve (NKPC), argues that current inflation is determined jointly by forward-looking expectations, backward-looking persistence, and real marginal costs proxied by labour market slack. A tractable empirical version replaces rational expectations with the adaptive expectations approximation, yielding the expectations-augmented specification:
+
+$$\pi_t^{CPIH} = \alpha + \beta_1 \pi_{t-1}^{CPIH} + \beta_2 \, u_t + \varepsilon_t$$
+
+Here $\beta_1$ captures inflation persistence: when $\beta_1$ is close to unity, past inflation is the dominant driver of current inflation, consistent with well-anchored expectations suppressing the labour market channel. The coefficient $\beta_2$ retains the Phillips curve interpretation.
+
+```{r expectations-augmented, results='asis'}
+# Add one-quarter lag of inflation as a proxy for adaptive expectations
+pc_data <- pc_data %>%
+  mutate(lag_infl = lag(CPIH_yoy, 1))
+
+model_augmented <- lm(CPIH_yoy ~ lag_infl + Unemployment, data = pc_data)
+
+stargazer(model_baseline, model_augmented,
+          type    = "latex",
+          title   = "Baseline and Expectations-Augmented Phillips Curve",
+          dep.var.labels = "CPIH Inflation (YoY \\%)",
+          column.labels  = c("Baseline", "Augmented"),
+          covariate.labels = c("Unemployment Rate (\\%)",
+                               "$\\pi_{t-1}$ (Lagged Inflation)",
+                               "Constant"),
+          keep.stat = c("n", "rsq", "adj.rsq", "f"),
+          notes     = "Standard errors in parentheses. * p<0.1, ** p<0.05, *** p<0.01",
+          notes.append = FALSE,
+          header  = FALSE)
+```
+
+Once lagged inflation is included, the model fit improves dramatically ($R^2 = 0.87$). The persistence parameter $\hat{\beta}_1 = 0.93$ is highly significant (p < 0.001), while the unemployment coefficient falls to $-0.06$ and loses all significance (p = 0.30). This is the central empirical finding: UK inflation dynamics over 2008 to 2025 are driven overwhelmingly by persistence and anchored expectations, not by labour market slack.
+
+\newpage
+
+# Structural Break Analysis: Pre- vs Post-COVID
+
+## Motivation
+
+The COVID-19 pandemic created an unprecedented macroeconomic shock, followed by a rapid reopening surge and global supply chain disruptions. The 2021 to 2023 inflation episode was the sharpest in forty years. A natural question is whether the Phillips curve relationship, dormant for much of the 2010s, re-emerged post-pandemic.
+
+We test for a structural break at 2020 Q1 in two ways: first by estimating the model separately for each sub-period, and then formally via an interaction term $u_t \times \mathbf{1}_{post2020}$, which tests whether the slope $\beta_2$ shifted after COVID:
+
+$$\pi_t^{CPIH} = \alpha + \beta_1 \pi_{t-1}^{CPIH} + \beta_2 \, u_t + \beta_3 \, \mathbf{1}_{post2020} + \beta_4 \left( u_t \times \mathbf{1}_{post2020} \right) + \varepsilon_t$$
+
+A significant $\hat{\beta}_4$ would indicate the Phillips curve slope steepened after COVID.
+
+```{r structural-break, results='asis'}
+pc_data <- pc_data %>%
+  mutate(post2020 = ifelse(date >= as.Date("2020-01-01"), 1, 0))
+
+model_pre  <- lm(CPIH_yoy ~ lag_infl + Unemployment,
+                 data = subset(pc_data, post2020 == 0))
+model_post <- lm(CPIH_yoy ~ lag_infl + Unemployment,
+                 data = subset(pc_data, post2020 == 1))
+model_int  <- lm(CPIH_yoy ~ lag_infl + Unemployment * post2020,
+                 data = pc_data)
+
+stargazer(model_pre, model_post, model_int,
+          type    = "latex",
+          title   = "Structural Break Analysis: Pre- and Post-COVID Phillips Curve",
+          dep.var.labels = "CPIH Inflation (YoY \\%)",
+          column.labels  = c("Pre-COVID (2008--2019)",
+                             "Post-COVID (2020--2025)",
+                             "Interaction (Full Sample)"),
+          covariate.labels = c("Unemployment Rate (\\%)",
+                               "$\\pi_{t-1}$ (Lagged Inflation)",
+                               "Post-2020 Dummy",
+                               "Unemployment $\\times$ Post-2020",
+                               "Constant"),
+          keep.stat = c("n", "rsq", "adj.rsq"),
+          notes     = "Standard errors in parentheses. * p<0.1, ** p<0.05, *** p<0.01",
+          notes.append = FALSE,
+          header  = FALSE)
+```
+
+The results reveal a striking shift. Pre-COVID, the unemployment coefficient is virtually zero ($\hat{\beta}_2 = +0.01$, p = 0.82), confirming the curve was flat. Post-COVID, it becomes substantially negative ($\hat{\beta}_2 = -0.63$), though it falls short of conventional significance (p = 0.35) given the limited post-2020 sample of approximately 20 quarters. The interaction term in the full-sample model ($\hat{\beta}_4 = -0.65$, p = 0.17) points in the same direction, with the lack of significance most likely reflecting a power problem rather than the absence of a real structural change.
+
+\newpage
+
+# Unemployment Gap Specification
+
+## Motivation
+
+Economic theory holds that what matters for inflation is not the level of unemployment per se, but its deviation from the Non-Accelerating Inflation Rate of Unemployment (NAIRU), $u^*$. Substituting the unemployment gap $\tilde{u}_t = u_t - u^*$ into the expectations-augmented model yields:
+
+$$\pi_t^{CPIH} = \alpha + \beta_1 \pi_{t-1}^{CPIH} + \beta_2 \tilde{u}_t + \varepsilon_t, \qquad \tilde{u}_t = u_t - \bar{u}$$
+
+where $\bar{u}$ is the sample mean unemployment rate, used as a simple approximation of the NAIRU. A more rigorous approach would estimate $u^*$ using an HP filter or Kalman smoother, but the sample mean is a defensible baseline for a long, balanced panel.
+
+```{r unemployment-gap, results='asis'}
+pc_data <- pc_data %>%
+  mutate(u_gap = Unemployment - mean(Unemployment, na.rm = TRUE))
+
+model_gap <- lm(CPIH_yoy ~ lag_infl + u_gap, data = pc_data)
+
+stargazer(model_augmented, model_gap,
+          type    = "latex",
+          title   = "Unemployment Level vs Gap Specification",
+          dep.var.labels = "CPIH Inflation (YoY \\%)",
+          column.labels  = c("Unemployment Level", "Unemployment Gap"),
+          covariate.labels = c("Unemployment Rate (\\%)",
+                               "$\\pi_{t-1}$ (Lagged Inflation)",
+                               "Unemployment Gap ($\\tilde{u}_t$)",
+                               "Constant"),
+          keep.stat = c("n", "rsq", "adj.rsq"),
+          notes     = "Standard errors in parentheses. * p<0.1, ** p<0.05, *** p<0.01",
+          notes.append = FALSE,
+          header  = FALSE)
+```
+
+As expected, the gap specification leaves the $R^2$ and inflation persistence coefficient unchanged. The unemployment gap is insignificant (p = 0.30), consistent with the level specification, confirming that the result is not an artefact of using the unemployment level rather than slack.
+
+\newpage
+
+# Rolling Regression: Has the Slope Changed Over Time?
+
+## Motivation
+
+The structural break test is binary, assuming a single break point at 2020. But the flattening of the Phillips curve has been a gradual process. A rolling regression estimates the unemployment coefficient over a moving window, tracking how the relationship has evolved continuously through time. We use a 20-quarter (5-year) window. Each point on the plot represents the estimated $\hat{\beta}$ for the 20 quarters ending at that date.
+
+```{r rolling20, fig.width=6.5, fig.height=5, fig.cap="Rolling 20-quarter Phillips curve slope. Values near zero or positive indicate a flat or broken curve; increasingly negative values indicate a strengthening traditional relationship. The dashed red line marks zero."}
+
+roll_coef <- rollapply(
+  pc_data[, c("CPIH_yoy", "Unemployment")],
+  width      = 20,
+  FUN        = function(x) {
+    x <- as.data.frame(x)
+    coef(lm(CPIH_yoy ~ Unemployment, data = x))[2]
+  },
+  by.column  = FALSE,
+  align      = "right"
+)
+
+roll_df <- data.frame(
+  date  = pc_data$date[20:nrow(pc_data)],
+  slope = as.numeric(roll_coef)
+)
+
+ggplot(roll_df, aes(x = date, y = slope)) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(
+    title    = "Rolling Phillips Curve Slope (20-Quarter Window)",
+    subtitle = "Unemployment coefficient from OLS: inflation ~ unemployment",
+    x        = "Date",
+    y        = "Unemployment Coefficient",
+    caption  = "Negative values indicate an active Phillips curve relationship"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title    = element_text(face = "bold"),
+    plot.subtitle = element_text(color = "grey50")
+  )
+```
+
+The plot is the most revealing in the analysis. The coefficient hovered close to zero throughout 2013 to 2019, consistent with a dormant curve. From 2022 onward it turns sharply and persistently negative, reaching values between -3 and -4 by end of sample. This is the strongest Phillips curve signal in the entire dataset and aligns precisely with the post-pandemic inflation surge.
+
+\newpage
+
+# Model Diagnostics
+
+## Autocorrelation
+
+OLS residuals from time-series regressions are frequently autocorrelated: errors in one period predict errors in the next. This does not bias the coefficients but understates standard errors, making results appear more significant than they are. We apply two corrective approaches: the Durbin-Watson test to detect first-order autocorrelation, and Newey-West HAC standard errors which remain valid under both heteroskedasticity and serial correlation.
+
+```{r diagnostics, results='asis'}
+model <- lm(CPIH_yoy ~ lag_infl + Unemployment, data = pc_data)
+
+# Durbin-Watson test
+dw <- dwtest(model)
+
+# Newey-West HAC corrected coefficients
+nw <- coeftest(model, vcov = NeweyWest(model, lag = 4))
+
+# Display HAC results via stargazer
+stargazer(model,
+          type    = "latex",
+          title   = "Expectations-Augmented Model: OLS vs Newey-West HAC Standard Errors",
+          dep.var.labels = "CPIH Inflation (YoY \\%)",
+          covariate.labels = c("$\\pi_{t-1}$ (Lagged Inflation)",
+                               "Unemployment Rate (\\%)",
+                               "Constant"),
+          se        = list(nw[, 2]),
+          p         = list(nw[, 4]),
+          keep.stat = c("n", "rsq", "adj.rsq"),
+          notes     = "Newey-West HAC standard errors in parentheses (lag = 4). * p<0.1, ** p<0.05, *** p<0.01",
+          notes.append = FALSE,
+          header  = FALSE)
+```
+
+```{r dw-print}
+cat(sprintf("Durbin-Watson statistic: %.4f  (p-value: %.2e)\n",
+            dw$statistic, dw$p.value))
+```
+
+The Durbin-Watson statistic of 1.09 (p < 0.001) confirms significant positive autocorrelation in the OLS residuals. Under Newey-West correction, the lagged inflation coefficient remains highly significant while the unemployment coefficient remains insignificant, confirming the core findings are robust to serial correlation.
+
+## Regression Diagnostics Plot
+
+```{r diagnostic-plots, fig.width=6.5, fig.height=6, fig.cap="OLS diagnostic plots for the expectations-augmented Phillips curve model. Observation 64 (2024 Q4) is flagged as a mild outlier with high leverage."}
+par(mfrow = c(2, 2))
+plot(model)
+par(mfrow = c(1, 1))
+```
+
+\newpage
+
+# Vector Autoregression (VAR) Model
+
+## Motivation
+
+The OLS models above treat inflation as the dependent variable and unemployment as strictly exogenous. In practice the relationship is bidirectional: high inflation triggers monetary tightening, raising unemployment; rising unemployment depresses inflation through the Phillips curve. A Vector Autoregression (VAR) treats both variables as jointly endogenous. Specifically, for the bivariate system $\mathbf{y}_t = [\pi_t^{CPIH},\, u_t]'$, the VAR($p$) model is:
+
+$$\begin{pmatrix} \pi_t^{CPIH} \\ u_t \end{pmatrix} = \mathbf{c} + \sum_{j=1}^{p} A_j \begin{pmatrix} \pi_{t-j}^{CPIH} \\ u_{t-j} \end{pmatrix} + \begin{pmatrix} \varepsilon_t^{\pi} \\ \varepsilon_t^{u} \end{pmatrix}$$
+
+where $A_j$ are $2 \times 2$ coefficient matrices and $\boldsymbol{\varepsilon}_t \sim WN(\mathbf{0}, \Sigma)$. This framework is well-suited to capturing the feedback between monetary policy transmission and labour market adjustment.
+
+## Lag Selection
+
+```{r var-lag-selection}
+var_data <- pc_data %>%
+  dplyr::select(CPIH_yoy, Unemployment) %>%
+  na.omit() %>%
+  as.data.frame()
+
+lag_select <- VARselect(var_data, lag.max = 8, type = "const")
+cat("Lag selection criteria:\n")
+print(lag_select$criteria)
+cat("\nSelected lags by each criterion:\n")
+print(lag_select$selection)
+```
+
+## VAR Estimation
+
+```{r var-estimation}
+# p=2 balances fit against parsimony; SC criterion selects p=2
+var_model <- VAR(var_data, p = 2, type = "const")
+
+cat("VAR stability roots (must all be < 1 for stationarity):\n")
+print(roots(var_model))
+
+summary(var_model)
+```
+
+All roots of the characteristic polynomial fall below unity in modulus, confirming the VAR is stable and the variables are stationary within the system. The inflation equation shows a significant negative coefficient on $u_{t-1}$ ($\hat{A}_{12,1} = -0.865$, p = 0.002), providing VAR-level confirmation of the Phillips curve channel.
+
+\newpage
+
+# Impulse Response Functions (IRF)
+
+## Motivation
+
+VAR coefficient matrices are difficult to interpret in isolation. Impulse Response Functions (IRFs) trace the dynamic response of one variable to a one-standard-deviation structural shock to another, integrating over all feedback effects in the system. The question posed here is: following an unexpected one-standard-deviation rise in unemployment, how does UK CPIH inflation respond over the subsequent 12 quarters? Under the traditional Phillips curve, we expect a persistent negative response; a response not distinguishable from zero would confirm curve flattening.
+
+```{r irf, fig.width=6.5, fig.height=5, fig.cap="Impulse response of UK CPIH inflation to a one-standard-deviation shock to unemployment. The solid line is the point estimate; dashed lines are 95\\% bootstrap confidence intervals (100 runs)."}
+
+irf_result <- irf(
+  var_model,
+  impulse  = "Unemployment",
+  response = "CPIH_yoy",
+  n.ahead  = 12,
+  boot     = TRUE,
+  ci       = 0.95
+)
+
+plot(irf_result,
+     main = "IRF: Inflation Response to Unemployment Shock",
+     ylab = "CPIH Inflation (percentage points)")
+```
+
+The IRF shows a clear and sustained negative inflation response peaking around quarters 5 to 6 at approximately -0.5 percentage points. The confidence intervals are wide, reflecting parameter uncertainty from the limited sample, but the point estimate is consistently negative throughout the horizon, corroborating the Phillips curve mechanism within the VAR framework.
+
+\newpage
+
+# Forecast Error Variance Decomposition (FEVD)
+
+## Motivation
+
+The FEVD answers a complementary question: of the total variance in inflation forecast errors at horizon $h$, what share is attributable to unemployment shocks versus inflation's own structural shocks? Formally, for the Cholesky-identified VAR, the FEVD for $\pi_t^{CPIH}$ at horizon $h$ is:
+
+$$\omega_{\pi u}(h) = \frac{\sum_{j=0}^{h-1} \left( e_1' \Phi_j P e_2 \right)^2}{\sum_{j=0}^{h-1} e_1' \Phi_j \Sigma \Phi_j' e_1}$$
+
+where $\Phi_j$ are the moving-average coefficient matrices, $P$ is the Cholesky factor of $\Sigma$, and $e_1$, $e_2$ are unit selection vectors. A rising $\omega_{\pi u}(h)$ at longer horizons signals that unemployment shocks are increasingly important for inflation dynamics.
+
+```{r fevd, fig.width=6.5, fig.height=5, fig.cap="Forecast Error Variance Decomposition for the UK bivariate VAR. The upper panel decomposes inflation forecast variance; the lower panel decomposes unemployment forecast variance."}
+
+fevd_result <- fevd(var_model, n.ahead = 12)
+
+cat("=== FEVD: Share of CPIH inflation variance explained (%) ===\n")
+round(100 * fevd_result$CPIH_yoy, 2)
+
+cat("\n=== FEVD: Share of Unemployment variance explained (%) ===\n")
+round(100 * fevd_result$Unemployment, 2)
+
+plot(fevd_result)
+```
+
+At a one-quarter horizon, inflation is almost entirely explained by its own shocks (100%). By quarter 12, unemployment accounts for 31% of inflation forecast variance, with its share rising monotonically throughout the horizon. This pattern is consistent with a slowly-operating but economically meaningful Phillips curve channel operating through the medium term.
+
+\newpage
+
+# Summary and Conclusions
+
+This analysis examined the UK Phillips curve over 2008 to 2025 using a progressively richer set of methods:
+
+| Model | Key Result |
+|-------|-----------|
+| Baseline OLS | $\hat{\beta} = -0.28$, p = 0.06; weak but correctly signed |
+| Expectations-augmented | $\hat{\beta}_1^{lag} = 0.93$ (p < 0.001); $\hat{\beta}_2^{u} = -0.06$ (p = 0.30) |
+| Structural break | Pre-COVID: $\hat{\beta}_2 = +0.01$; post-COVID: $\hat{\beta}_2 = -0.63$ |
+| Unemployment gap | Gap insignificant (p = 0.30); expectations still dominate |
+| Rolling regression | Slope turns sharply negative from 2022 onward |
+| VAR | $u_{t-1}$ significant in inflation equation (p = 0.002) |
+| IRF | Negative inflation response to unemployment shock; peak at Q5-6 |
+| FEVD | Unemployment explains 31% of inflation variance at 12-quarter horizon |
+
+## Answer: Present but Flat, with Signs of Re-steepening
+
+The evidence points to a consistent picture. Over the full 2008 to 2025 sample, **the Phillips curve exists but is weak**: the baseline unemployment coefficient is -0.28 and only marginally significant (p = 0.06), and once inflation expectations are controlled for via lagged inflation, unemployment becomes entirely insignificant (p = 0.30). The lagged inflation coefficient of 0.93 dominates, meaning UK inflation dynamics over this period were driven overwhelmingly by persistence and well-anchored expectations rather than labour market slack. This is consistent with the Bank of England's inflation targeting framework successfully suppressing the wage-price spiral mechanism through most of the 2010s.
+
+The post-COVID period tells a different story. The rolling regression is the most revealing result: the unemployment coefficient hovered near zero from 2013 to 2019 before turning sharply and persistently negative from 2022 onward, reaching values between -3 and -4 by end of sample. The structural break analysis shows the unemployment coefficient shifting from +0.01 pre-COVID to -0.63 post-COVID. The interaction term falls short of conventional significance (p = 0.165), but this is most plausibly a statistical power problem: the post-COVID subsample contains only around 20 quarters, which is insufficient to precisely estimate a structural change of this magnitude.
+
+The VAR evidence corroborates this. The unemployment lag enters the inflation equation with a significant negative coefficient ($p = 0.002$), and the FEVD shows unemployment accounting for a rising share of inflation forecast variance, reaching 31% at a 12-quarter horizon. The IRF shows a clear, sustained negative inflation response to an unemployment shock, with the point estimate consistently negative throughout the 12-quarter horizon.
+
+**In summary**, the UK Phillips curve was effectively dormant during the 2010s, suppressed by well-anchored inflation expectations under inflation targeting. The post-pandemic inflation surge, coinciding with a historically tight labour market, appears to have reactivated the mechanism. Definitively confirming this will require more post-2020 data as the sample grows. The most important implication for monetary policy is that central banks cannot rely on a stable, quantifiable Phillips curve trade-off: the relationship's strength is time-varying and highly sensitive to the credibility of the inflation-targeting regime.
