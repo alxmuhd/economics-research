@@ -17,22 +17,18 @@ Data: Afrobarometer (public), ACLED (public).
 Status: Replication code and documentation available.
 
 3. GIS Portfolio — Spatial Analysis in R
+   
 Description: Demonstrates applied spatial data analysis across seven GIS workflows using R. Covers vector and raster data handling, coordinate reference systems, spatial intersection, digital elevation modelling, satellite imagery processing, and population density mapping. Data sources include GADM, OpenStreetMap, Natural Earth, AWS Terrain Tiles, Sentinel-2 (ESA), and WorldPop. Output: reproducible R Markdown document rendered to PDF.
 
-4. UK Phillips Curve: VAR and Inflation Dynamics (2008–2025)
-This project investigates the UK Phillips curve using quarterly ONS data (CPIH, unemployment, productivity).
+4. UK Phillips Curve – Inflation Dynamics and VAR Analysis (2008–2025)
+   
+Description: Investigates whether the Phillips curve relationship between unemployment and inflation remains active in the UK using quarterly ONS data from 2008–2025. Examines baseline, expectations-augmented, structural break, and dynamic specifications to assess time variation in the inflation–labour market trade-off.
 
-Methods:
-- Baseline OLS
-- Expectations-augmented Phillips curve
-- Structural break analysis (COVID)
-- Rolling regression
-- VAR(2) estimation
-- Impulse Response Functions (IRF)
-- Forecast Error Variance Decomposition (FEVD)
+Methods: OLS regression, expectations-augmented Phillips curve (lagged inflation), structural break analysis (pre/post COVID), rolling regression (20-quarter window), Vector Autoregression (VAR), Impulse Response Functions (IRF), Forecast Error Variance Decomposition (FEVD), Newey-West HAC corrections.
 
-Key Finding:
-The Phillips curve was flat during the 2010s but shows signs of re-steepening post-COVID, with unemployment explaining up to 31% of inflation variance at a 12-quarter horizon.
+Data: ONS CPIH (inflation), ONS quarterly unemployment rate, ONS Output per Hour Worked (productivity).
+
+Status: Full replication code and reproducible R Markdown document available.
 
 ## Data Sources
 ### 1. Afrobarometer (Nigeria, Rounds 1–9)
@@ -48,7 +44,16 @@ https://acleddata.com/
 ### 3. UK Household Longitudinal Study (UKHLS) – COVID-19 Waves
 Panel data used to analyse the effects of furlough on cognitive mental health.
 Study documentation available at:
-https://www.understandingsociety.ac.uk/
+https://www.understandingsociety.ac.uk/ ```
+
+### 4. UK Office for National Statistics (ONS) – Macroeconomic Data
+Quarterly and monthly macroeconomic data used to estimate the UK Phillips curve and VAR model, including:
+• CPIH (Consumer Prices Index including owner occupiers’ housing costs) – used to construct year-on-year inflation  
+• Quarterly unemployment rate – used as the labour market slack measure  
+• Output per Hour Worked (Table 18) – used for productivity context  
+
+Documentation and access available at:  
+https://www.ons.gov.uk/
 
 ## Replication Instructions
 1. Download Afrobarometer data (Rounds 1–9) from the official website.
