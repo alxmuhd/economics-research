@@ -1,5 +1,5 @@
 # economics-research
-Replication packages for causal inference and applied microeconomics projects in development, labour, and health economics.
+Replication packages for applied microeconomics and macroeconomic time-series analysis, covering causal inference, VAR modelling, and policy-relevant research in development, labour, health, and inflation dynamics.
 
 Projects
 1. The Cognitive Cost of Furlough (UKHLS, IV/2SLS)
@@ -20,7 +20,7 @@ Status: Replication code and documentation available.
    
 Description: Demonstrates applied spatial data analysis across seven GIS workflows using R. Covers vector and raster data handling, coordinate reference systems, spatial intersection, digital elevation modelling, satellite imagery processing, and population density mapping. Data sources include GADM, OpenStreetMap, Natural Earth, AWS Terrain Tiles, Sentinel-2 (ESA), and WorldPop. Output: reproducible R Markdown document rendered to PDF.
 
-4. UK Phillips Curve – Inflation Dynamics and VAR Analysis (2008–2025)
+4. UK Phillips Curve – Inflation Dynamics and VAR Analysis (2008–2025) - Macroeconomic analysis
    
 Description: Investigates whether the Phillips curve relationship between unemployment and inflation remains active in the UK using quarterly ONS data from 2008–2025. Examines baseline, expectations-augmented, structural break, and dynamic specifications to assess time variation in the inflation–labour market trade-off.
 
