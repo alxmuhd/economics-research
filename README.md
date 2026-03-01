@@ -19,6 +19,21 @@ Status: Replication code and documentation available.
 3. GIS Portfolio — Spatial Analysis in R
 Description: Demonstrates applied spatial data analysis across seven GIS workflows using R. Covers vector and raster data handling, coordinate reference systems, spatial intersection, digital elevation modelling, satellite imagery processing, and population density mapping. Data sources include GADM, OpenStreetMap, Natural Earth, AWS Terrain Tiles, Sentinel-2 (ESA), and WorldPop. Output: reproducible R Markdown document rendered to PDF.
 
+4. UK Phillips Curve: VAR and Inflation Dynamics (2008–2025)
+This project investigates the UK Phillips curve using quarterly ONS data (CPIH, unemployment, productivity).
+
+Methods:
+- Baseline OLS
+- Expectations-augmented Phillips curve
+- Structural break analysis (COVID)
+- Rolling regression
+- VAR(2) estimation
+- Impulse Response Functions (IRF)
+- Forecast Error Variance Decomposition (FEVD)
+
+Key Finding:
+The Phillips curve was flat during the 2010s but shows signs of re-steepening post-COVID, with unemployment explaining up to 31% of inflation variance at a 12-quarter horizon.
+
 ## Data Sources
 ### 1. Afrobarometer (Nigeria, Rounds 1–9)
 Public opinion survey data used to measure democratic attitudes and political trust.
